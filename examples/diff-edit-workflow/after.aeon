@@ -1,0 +1,7 @@
+aeon:mode = "strict"
+
+app:object = {
+  count:number = 2
+  status:string = "draft"
+  enabled:boolean = true
+}

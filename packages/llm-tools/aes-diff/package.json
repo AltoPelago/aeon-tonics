@@ -1,0 +1,29 @@
+{
+  "name": "@aeon-tonics/aes-diff",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "aes-diff": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
+  ],
+  "scripts": {
+    "build": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json && node --test dist/*.test.js",
+    "clean": "rm -rf dist"
+  }
+}

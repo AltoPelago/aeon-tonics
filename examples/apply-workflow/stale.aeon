@@ -1,0 +1,7 @@
+aeon:mode = "strict"
+
+app:object = {
+  count:number = 1
+  status:string = "other"
+  enabled:boolean = true
+}
