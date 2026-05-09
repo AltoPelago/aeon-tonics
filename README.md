@@ -52,8 +52,9 @@ The workspace is grouped by intent rather than by publication name:
 - `packages/export`
   AEON/AES export helpers such as `@aeon-tonics/minizer`, which takes AES and
   renders minimized AEON text, `@aeon-tonics/compactor`, which emits compact
-  AEON while preserving selected comments, and `@aeon-tonics/prettifier`, which
-  expands AEON for human editing without canonical reordering.
+  AEON while preserving selected comments, `@aeon-tonics/mode-converter`, which
+  switches AEON between strict and transport mode, and `@aeon-tonics/prettifier`,
+  which expands AEON for human editing without canonical reordering.
 - `packages/annotation`
   Annotation-oriented adapters such as `@aeon-tonics/fmt-and-annotation-payload`, which projects
   AEON annotation records into embedded headerless `&ND` payloads.
@@ -170,6 +171,10 @@ Core examples:
 - `@aeon-tonics/compactor`
   Consumes AEON source and emits compact AEON while preserving semantic comments
   by default.
+- `@aeon-tonics/mode-converter`
+  Converts AEON between strict and transport mode by stripping or inferring
+  datatypes while preserving transport-sensitive datatypes such as `embed`,
+  `inline`, and `envelope`.
 - `@aeon-tonics/prettifier`
   Consumes AEON or AES and emits readable AEON text while preserving event order.
 - `@aeon-tonics/titonic`

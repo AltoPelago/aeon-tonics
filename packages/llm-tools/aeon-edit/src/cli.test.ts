@@ -114,6 +114,29 @@ test('CLI compact can preserve regular comments', async () => {
   assert.equal(result.stdout, '// plain\na=1\n');
 });
 
+test('CLI converts strict AEON to transport mode', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
+  const file = join(dir, 'doc.aeon');
+  await writeFile(file, 'aeon:mode = "strict"\nname:string = "Aeon"\npayload:embed = $SGVsbG8=', 'utf8');
+
+  const result = await execFileAsync(process.execPath, [cliPath, 'convert-mode', file, 'transport']);
+
+  assert.equal(result.stdout, 'aeon:mode="transport"\nname="Aeon"\npayload:embed=$SGVsbG8=\n');
+});
+
+test('CLI converts transport AEON to strict mode', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
+  const file = join(dir, 'doc.aeon');
+  await writeFile(file, 'aeon:mode = "transport"\nname = "Aeon"\ncount = 1\nitems = [1, "two"]', 'utf8');
+
+  const result = await execFileAsync(process.execPath, [cliPath, 'convert-mode', file, 'strict']);
+
+  assert.equal(
+    result.stdout,
+    'aeon:mode="strict"\nname:string="Aeon"\ncount:number=1\nitems:list=[:number=1,:string="two"]\n',
+  );
+});
+
 test('CLI prettify writes expanded AEON with --write', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
   const file = join(dir, 'doc.aeon');

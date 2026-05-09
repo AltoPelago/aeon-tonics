@@ -18,6 +18,8 @@ aeon-edit inspect file.aeon $.path
 aeon-edit list file.aeon
 aeon-edit compact file.aeon
 aeon-edit compact file.aeon --comments all
+aeon-edit convert-mode file.aeon transport
+aeon-edit convert-mode file.aeon strict
 aeon-edit prettify file.aeon
 aeon-edit prettify file.aeon --write
 aeon-edit plan-set file.aeon $.path '2'
@@ -58,7 +60,7 @@ aeon-edit node-attr-annotation delete file.aeon $.view id source
 aeon-edit export-aes file.aeon
 ```
 
-Mutation, `compact`, and `prettify` commands print edited AEON to stdout by default. Use `--out <file>` or `--write` to write
+Mutation, `compact`, `convert-mode`, and `prettify` commands print edited AEON to stdout by default. Use `--out <file>` or `--write` to write
 to disk. Successful writes now log by default to `.aeon-edit/log.jsonl` beside the target file.
 Use `--log <file>` to override that location; `.jsonl` logs are line-oriented JSON, while `.aeon`
 logs are strict AEON documents with `entries:list` node records. Use `--no-log` to disable logging

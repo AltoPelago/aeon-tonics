@@ -18,6 +18,7 @@ import {
   applyAeonEditBatch,
   appendAeonEditValue,
   compactAeonEdit,
+  convertAeonEditMode,
   deleteAeonEditAttribute,
   deleteAeonEditAttributeAnnotation,
   deleteAeonEditNodeAttribute,
@@ -47,6 +48,7 @@ import {
   type AeonEditResult,
 } from './index.js';
 import type { CompactCommentMode } from '../../../export/compactor/dist/index.js';
+import type { AeonModeConversionTarget } from '../../../export/mode-converter/dist/index.js';
 
 interface ParsedArgs {
   readonly command: string;
@@ -184,6 +186,8 @@ function runCommand(source: string, args: ParsedArgs) {
       return listAeonEditPaths(source);
     case 'compact':
       return compactAeonEdit(source, args.comments);
+    case 'convert-mode':
+      return convertAeonEditMode(source, parseModeTarget(required(args.path, 'mode')));
     case 'prettify':
       return prettifyAeonEdit(source);
     case 'plan-set':
@@ -1145,6 +1149,13 @@ function required(value: string | undefined, label: string): string {
   return value;
 }
 
+function parseModeTarget(value: string): AeonModeConversionTarget {
+  if (value === 'strict' || value === 'transport') {
+    return value;
+  }
+  throw new Error(`Invalid mode target: ${value}. Expected strict or transport.`);
+}
+
 function usage(): string {
   return [
     'Usage:',
@@ -1152,6 +1163,7 @@ function usage(): string {
     '  aeon-edit inspect <file.aeon> <path> [--json]',
     '  aeon-edit list <file.aeon> [--json]',
     '  aeon-edit compact <file.aeon> [--comments semantic|all|none] [--out file | --write] [--json]',
+    '  aeon-edit convert-mode <file.aeon> strict|transport [--out file | --write] [--json]',
     '  aeon-edit prettify <file.aeon> [--out file | --write] [--json]',
     '  aeon-edit plan-set <file.aeon> <path> <aeon-value> [--json]',
     '  aeon-edit plan-attr-set <file.aeon> <path> <key> <aeon-value> [--json]',

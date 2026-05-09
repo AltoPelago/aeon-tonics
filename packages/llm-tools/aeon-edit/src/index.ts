@@ -27,6 +27,7 @@ import {
   type TitonicValue,
 } from '../../../foundations/titonic/dist/index.js';
 import { compactAeon, type CompactCommentMode } from '../../../export/compactor/dist/index.js';
+import { convertAeonMode, type AeonModeConversionTarget } from '../../../export/mode-converter/dist/index.js';
 import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
 import type { AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 
@@ -289,6 +290,18 @@ export function compactAeonEdit(source: string, comments: CompactCommentMode = '
     output: {
       format: 'aeon',
       text: compactAeon(source, { comments, trailingNewline: true }).text,
+    },
+  };
+}
+
+export function convertAeonEditMode(source: string, target: AeonModeConversionTarget): AeonEditResult {
+  return {
+    ok: true,
+    command: 'convert-mode',
+    changed: true,
+    output: {
+      format: 'aeon',
+      text: convertAeonMode(source, { target, trailingNewline: true }).text,
     },
   };
 }
