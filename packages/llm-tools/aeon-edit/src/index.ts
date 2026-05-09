@@ -26,6 +26,8 @@ import {
   type TitonicPathSegment,
   type TitonicValue,
 } from '../../../foundations/titonic/dist/index.js';
+import { compactAeon, type CompactCommentMode } from '../../../export/compactor/dist/index.js';
+import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
 import type { AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 
 export interface AeonEditOptions {
@@ -263,6 +265,30 @@ export function exportAeonEditAes(source: string): AeonEditResult {
     output: {
       format: 'aes',
       events: exportTitonicAes(document),
+    },
+  };
+}
+
+export function prettifyAeonEdit(source: string): AeonEditResult {
+  return {
+    ok: true,
+    command: 'prettify',
+    changed: true,
+    output: {
+      format: 'aeon',
+      text: prettifyAeon(source, { trailingNewline: true }).text,
+    },
+  };
+}
+
+export function compactAeonEdit(source: string, comments: CompactCommentMode = 'semantic'): AeonEditResult {
+  return {
+    ok: true,
+    command: 'compact',
+    changed: true,
+    output: {
+      format: 'aeon',
+      text: compactAeon(source, { comments, trailingNewline: true }).text,
     },
   };
 }

@@ -17,6 +17,7 @@ import {
 import {
   applyAeonEditBatch,
   appendAeonEditValue,
+  compactAeonEdit,
   deleteAeonEditAttribute,
   deleteAeonEditAttributeAnnotation,
   deleteAeonEditNodeAttribute,
@@ -36,6 +37,7 @@ import {
   planAeonEditNodeAttributeAnnotationSet,
   planAeonEditNodeAttributeSet,
   planAeonEditSet,
+  prettifyAeonEdit,
   setAeonEditAttribute,
   setAeonEditAttributeAnnotation,
   setAeonEditNodeAttribute,
@@ -44,6 +46,7 @@ import {
   type AeonEditBatchOperation,
   type AeonEditResult,
 } from './index.js';
+import type { CompactCommentMode } from '../../../export/compactor/dist/index.js';
 
 interface ParsedArgs {
   readonly command: string;
@@ -68,6 +71,7 @@ interface ParsedArgs {
   readonly ledgerKey?: string;
   readonly latest: boolean;
   readonly noLog: boolean;
+  readonly comments: CompactCommentMode;
 }
 
 interface AeonEditLogRecord {
@@ -178,6 +182,10 @@ function runCommand(source: string, args: ParsedArgs) {
       return inspectAeonEditPath(source, required(args.path, 'path'));
     case 'list':
       return listAeonEditPaths(source);
+    case 'compact':
+      return compactAeonEdit(source, args.comments);
+    case 'prettify':
+      return prettifyAeonEdit(source);
     case 'plan-set':
       return planAeonEditSet(source, required(args.path, 'path'), required(args.value, 'value'));
     case 'plan-attr-set':
@@ -326,6 +334,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
       write: false,
       latest: false,
       noLog: true,
+      comments: 'semantic',
     };
   }
   const args = [...argv];
@@ -339,6 +348,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
       write: false,
       latest: false,
       noLog: true,
+      comments: 'semantic',
     };
   }
   const command = args.shift() ?? 'help';
@@ -359,6 +369,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
   let ledger: string | undefined;
   let ledgerKey: string | undefined;
   let latest = false;
+  let comments: CompactCommentMode = 'semantic';
   const positional: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -446,6 +457,15 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
       case '--latest':
         latest = true;
         break;
+      case '--comments': {
+        const value = args[index + 1];
+        if (value !== 'semantic' && value !== 'all' && value !== 'none') {
+          return 'Missing or invalid value for --comments. Expected semantic, all, or none';
+        }
+        comments = value;
+        index += 1;
+        break;
+      }
       case '--out': {
         const value = args[index + 1];
         if (!value) {
@@ -487,6 +507,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
     ...(ledgerKey === undefined ? {} : { ledgerKey }),
     latest,
     noLog,
+    comments,
   };
 }
 
@@ -1130,6 +1151,8 @@ function usage(): string {
     '  aeon-edit get <file.aeon> <path> [--json]',
     '  aeon-edit inspect <file.aeon> <path> [--json]',
     '  aeon-edit list <file.aeon> [--json]',
+    '  aeon-edit compact <file.aeon> [--comments semantic|all|none] [--out file | --write] [--json]',
+    '  aeon-edit prettify <file.aeon> [--out file | --write] [--json]',
     '  aeon-edit plan-set <file.aeon> <path> <aeon-value> [--json]',
     '  aeon-edit plan-attr-set <file.aeon> <path> <key> <aeon-value> [--json]',
     '  aeon-edit plan-node-attr-set <file.aeon> <node-path> <key> <aeon-value> [--json]',

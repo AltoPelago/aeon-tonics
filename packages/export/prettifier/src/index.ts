@@ -1,4 +1,5 @@
 import type { AssignmentEvent, AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import type {
   Attribute,
   ReferencePathSegment,
@@ -6,11 +7,12 @@ import type {
   Value,
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 
-export interface MinimizeOptions {
+export interface PrettifyOptions {
+  readonly indent?: string;
   readonly trailingNewline?: boolean;
 }
 
-export interface MinimizeResult {
+export interface PrettifyResult {
   readonly text: string;
 }
 
@@ -19,18 +21,32 @@ interface RootMemberSegment {
   readonly key: string;
 }
 
-export function minimize(
+interface RenderContext {
+  readonly indent: string;
+}
+
+export function prettify(
   aes: readonly AssignmentEvent[],
-  options: MinimizeOptions = {},
-): MinimizeResult {
+  options: PrettifyOptions = {},
+): PrettifyResult {
+  const context = { indent: options.indent ?? '  ' };
   const topLevel = aes.filter(isTopLevelBinding);
   const text = topLevel
-    .map((event) => renderTopLevelBinding(event))
+    .map((event) => renderTopLevelBinding(event, context))
     .join('\n');
 
   return {
     text: options.trailingNewline && text.length > 0 ? `${text}\n` : text,
   };
+}
+
+export function prettifyAeon(source: string, options: PrettifyOptions = {}): PrettifyResult {
+  const compiled = compile(source);
+  if (compiled.errors.length > 0) {
+    const first = compiled.errors[0]!;
+    throw new Error(first.message);
+  }
+  return prettify(compiled.events, options);
 }
 
 function isTopLevelBinding(event: AssignmentEvent): boolean {
@@ -40,18 +56,18 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
   return segments.length === 2 && head?.type === 'root' && tail?.type === 'member';
 }
 
-function renderTopLevelBinding(event: AssignmentEvent): string {
+function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): string {
   const segment = event.path.segments[1] as RootMemberSegment;
   const aeonShortcutHeader = segment.key.startsWith('aeon:');
   const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key);
-  const datatype = aeonShortcutHeader ? '' : renderDatatype(event.datatype);
-  return `${key}${renderAnnotations(event.annotations)}${datatype}=${renderValue(event.value)}`;
+  const datatype = aeonShortcutHeader ? '' : renderEventDatatype(event.datatype);
+  return `${key}${renderAnnotations(event.annotations, context, 0)}${datatype} = ${renderValue(event.value, context, 0)}`;
 }
 
-function renderValue(value: Value): string {
+function renderValue(value: Value, context: RenderContext, depth: number): string {
   switch (value.type) {
     case 'TypedValue':
-      return `${renderAttributes(value.attributes)}${formatDatatype(value.datatype)}=${renderValue(value.value)}`;
+      return `${renderAttributes(value.attributes, context, depth)}${formatDatatype(value.datatype)} = ${renderValue(value.value, context, depth)}`;
     case 'StringLiteral':
       return formatString(value.value);
     case 'NumberLiteral':
@@ -69,13 +85,13 @@ function renderValue(value: Value): string {
     case 'TimeLiteral':
       return value.raw;
     case 'ObjectNode':
-      return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.datatype, binding.attributes)).join(',')}}`;
+      return renderObject(value, context, depth);
     case 'ListNode':
-      return `[${value.elements.map((element) => renderValue(element)).join(',')}]`;
+      return renderList(value, context, depth);
     case 'TupleLiteral':
-      return `(${value.elements.map((element) => renderValue(element)).join(',')})`;
+      return `(${value.elements.map((element) => renderValue(element, context, depth)).join(', ')})`;
     case 'NodeLiteral':
-      return renderNode(value);
+      return renderNode(value, context, depth);
     case 'CloneReference':
       return `~${formatReferencePath(value.path)}`;
     case 'PointerReference':
@@ -87,37 +103,78 @@ function renderValue(value: Value): string {
   }
 }
 
+function renderObject(value: Extract<Value, { type: 'ObjectNode' }>, context: RenderContext, depth: number): string {
+  if (value.bindings.length === 0) {
+    return '{}';
+  }
+  const body = value.bindings
+    .map((binding) => `${indent(context, depth + 1)}${renderBinding(binding.key, binding.value, binding.datatype, binding.attributes, context, depth + 1)}`)
+    .join('\n');
+  return `{\n${body}\n${indent(context, depth)}}`;
+}
+
+function renderList(value: Extract<Value, { type: 'ListNode' }>, context: RenderContext, depth: number): string {
+  if (value.elements.length === 0) {
+    return '[]';
+  }
+  if (value.elements.every(isInlineValue)) {
+    return `[${value.elements.map((element) => renderValue(element, context, depth)).join(', ')}]`;
+  }
+  const body = value.elements
+    .map((element) => `${indent(context, depth + 1)}${renderValue(element, context, depth + 1)}`)
+    .join(',\n');
+  return `[\n${body}\n${indent(context, depth)}]`;
+}
+
+function isInlineValue(value: Value): boolean {
+  return value.type !== 'ObjectNode' && value.type !== 'ListNode' && value.type !== 'NodeLiteral';
+}
+
 function renderBinding(
   key: string,
   value: Value,
   datatype: TypeAnnotation | null,
   attributes: readonly Attribute[],
+  context: RenderContext,
+  depth: number,
 ): string {
-  return `${formatBindingKey(key)}${renderAttributes(attributes)}${formatDatatype(datatype)}=${renderValue(value)}`;
+  return `${formatBindingKey(key)}${renderAttributes(attributes, context, depth)}${formatDatatype(datatype)} = ${renderValue(value, context, depth)}`;
 }
 
-function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
-  const attrs = renderAttributes(value.attributes);
+function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number): string {
+  const attrs = renderAttributes(value.attributes, context, depth);
   const datatype = formatDatatype(value.datatype);
-  const children = value.children.length > 0
-    ? `(${value.children.map((child) => renderValue(child)).join(',')})`
-    : '';
-  return `<${formatBindingKey(value.tag)}${attrs}${datatype}${children}>`;
+  if (value.children.length === 0) {
+    return `<${formatBindingKey(value.tag)}${attrs}${datatype}>`;
+  }
+  if (value.children.every(isInlineValue)) {
+    return `<${formatBindingKey(value.tag)}${attrs}${datatype}(${value.children.map((child) => renderValue(child, context, depth)).join(', ')})>`;
+  }
+  const children = value.children
+    .map((child) => `${indent(context, depth + 1)}${renderValue(child, context, depth + 1)}`)
+    .join(',\n');
+  return `<${formatBindingKey(value.tag)}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
 }
 
-function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
+function renderAnnotations(
+  annotations: ReadonlyMap<string, AttributeEntry> | undefined,
+  context: RenderContext,
+  depth: number,
+): string {
   if (!annotations || annotations.size === 0) {
     return '';
   }
 
   const entries = [...annotations.entries()]
-    .map(([key, entry]) => renderAttributeEntry(key, entry))
-    .join(',');
+    .map(([key, entry]) => renderAttributeEntry(key, entry, context, depth))
+    .join(', ');
   return `@{${entries}}`;
 }
 
 function renderAttributes(
   attributes: readonly Attribute[],
+  context: RenderContext,
+  depth: number,
 ): string {
   if (attributes.length === 0) {
     return '';
@@ -126,20 +183,20 @@ function renderAttributes(
     .map((attribute) => {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
-          const nested = renderAttributes(entry.attributes);
-          return `${formatBindingKey(key)}${nested}${formatDatatype(entry.datatype)}=${renderValue(entry.value)}`;
+          const nested = renderAttributes(entry.attributes, context, depth);
+          return `${formatBindingKey(key)}${nested}${formatDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
         })
-        .join(',');
+        .join(', ');
       return `@{${entries}}`;
     })
     .join('');
 }
 
-function renderAttributeEntry(key: string, entry: AttributeEntry): string {
-  return `${formatBindingKey(key)}${renderAnnotations(entry.annotations)}${renderDatatype(entry.datatype)}=${renderValue(entry.value)}`;
+function renderAttributeEntry(key: string, entry: AttributeEntry, context: RenderContext, depth: number): string {
+  return `${formatBindingKey(key)}${renderAnnotations(entry.annotations, context, depth)}${renderEventDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
 }
 
-function renderDatatype(datatype: string | undefined): string {
+function renderEventDatatype(datatype: string | undefined): string {
   return datatype ? `:${datatype}` : '';
 }
 
@@ -223,4 +280,8 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
 
 function escapeQuotedPathSegment(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function indent(context: RenderContext, depth: number): string {
+  return context.indent.repeat(depth);
 }

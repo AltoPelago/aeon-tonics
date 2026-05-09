@@ -118,6 +118,175 @@ Cons:
 My recommendation for a first slice:
 
 - make the raw extractor primary
+
+## Proposed Placement Metadata
+
+The current annotation stream can identify the semantic target for a structured comment, for
+example:
+
+```ts
+{
+  kind: "hint",
+  raw: "//? required",
+  target: { kind: "path", path: "$.name" }
+}
+```
+
+That is enough for semantic attachment, but not enough for layout-sensitive tools such as a
+comment-preserving compactor or editor formatter. A comment can attach to the same binding path
+while appearing in very different source positions:
+
+```aeon
+name:string = /* comment */ "Aeon"
+name:string /* comment */ = "Aeon"
+name:/* comment */ string = "Aeon"
+name /* comment */ :string = "Aeon"
+name@{unit:n=2} /* comment */ :string = "Aeon"
+name /* comment */ @{unit:n=2}:string = "Aeon"
+```
+
+All of these can reasonably target `$.name`, but they do not occupy the same position in the
+binding. A formatter should not have to infer that position from raw offsets after the parser has
+already identified the target.
+
+The proposal is to add optional placement metadata to annotation records:
+
+```ts
+type AnnotationPlacementPart =
+  | "key"
+  | "attributes"
+  | "datatype-colon"
+  | "datatype"
+  | "equals"
+  | "value";
+
+interface AnnotationPlacement {
+  readonly after?: AnnotationPlacementPart;
+  readonly before?: AnnotationPlacementPart;
+}
+
+interface AnnotationRecord {
+  readonly kind: AnnotationKind;
+  readonly form: AnnotationForm;
+  readonly raw: string;
+  readonly span: Span;
+  readonly target: AnnotationTarget;
+  readonly subtype?: AnnotationReservedSubtype;
+  readonly placement?: AnnotationPlacement;
+}
+```
+
+The placement says which grammar landmarks the comment appears between. It does not replace
+`target`; it refines where the comment sits relative to that target.
+
+Examples:
+
+```aeon
+//# docs
+name:string = "Aeon"
+```
+
+```ts
+{
+  target: { kind: "path", path: "$.name" },
+  placement: { before: "key" }
+}
+```
+
+```aeon
+name:string = "Aeon" //? required
+```
+
+```ts
+{
+  target: { kind: "path", path: "$.name" },
+  placement: { after: "value" }
+}
+```
+
+```aeon
+name:string = /* comment */ "Aeon"
+```
+
+```ts
+{
+  target: { kind: "path", path: "$.name" },
+  placement: { after: "equals", before: "value" }
+}
+```
+
+```aeon
+name /* comment */ :string = "Aeon"
+```
+
+```ts
+{
+  target: { kind: "path", path: "$.name" },
+  placement: { after: "key", before: "datatype-colon" }
+}
+```
+
+```aeon
+name /* comment */ @{unit:n=2}:string = "Aeon"
+```
+
+```ts
+{
+  target: { kind: "path", path: "$.name" },
+  placement: { after: "key", before: "attributes" }
+}
+```
+
+This `before`/`after` model is preferred over named slots because the awkward cases are often
+literally between two grammar parts. It also avoids growing a large slot enum with near-duplicates
+such as `afterDatatype` and `beforeEquals`.
+
+## Compatibility
+
+This should be an additive change:
+
+- keep `target` exactly as it is today
+- add `placement?: AnnotationPlacement`
+- leave `placement` undefined when the resolver is not confident
+- do not require consumers to understand placement metadata
+- do not move placement inside `target`
+
+Existing tools that read `kind`, `raw`, `span`, and `target` should continue to work. TypeScript
+consumers that exhaustively assert the exact object shape may need to update tests, but normal
+structural consumers should not break.
+
+## Placement Scope
+
+The first placement slice should focus on binding-head and assignment landmarks:
+
+- key
+- attributes
+- datatype colon
+- datatype
+- equals
+- value
+
+Container-relative placement can be added later if needed:
+
+- before first child
+- between children
+- after last child
+
+That later layer may use the same `before`/`after` idea with child paths or element indexes rather
+than introducing a separate slot vocabulary.
+
+## Compactor Implication
+
+Until placement exists, a comment-preserving compactor should keep preserved comments as standalone
+lines in source encounter order. That is safer than pretending path-level attachment can reconstruct
+intra-binding layout.
+
+Once placement exists, the compactor can choose a style:
+
+- preserve inline comments when placement is exact
+- normalize all comments to standalone lines
+- preserve semantic comments inline but move plain comments to standalone lines
+- strip comments with an explicit option
 - make merge optional
 
 ## Recommended First Output Shape

@@ -64,6 +64,73 @@ test('CLI prints edited AEON to stdout by default', async () => {
   assert.equal(unchanged, source);
 });
 
+test('CLI prettifies minimized AEON to stdout without changing source order', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
+  const file = join(dir, 'doc.aeon');
+  await writeFile(file, 'z:number=1\naeon:mode="strict"\napp:object={name:string="Aeon",count:number=1}', 'utf8');
+
+  const result = await execFileAsync(process.execPath, [cliPath, 'prettify', file]);
+  const unchanged = await readFile(file, 'utf8');
+
+  assert.equal(result.stdout, [
+    'z:number = 1',
+    'aeon:mode = "strict"',
+    'app:object = {',
+    '  name:string = "Aeon"',
+    '  count:number = 1',
+    '}',
+    '',
+  ].join('\n'));
+  assert.equal(unchanged, 'z:number=1\naeon:mode="strict"\napp:object={name:string="Aeon",count:number=1}');
+});
+
+test('CLI compacts AEON while preserving semantic comments by default', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
+  const file = join(dir, 'doc.aeon');
+  await writeFile(file, [
+    '//# docs',
+    'a:number = 1 //? required',
+    '// plain',
+    'b:string = "two"',
+  ].join('\n'), 'utf8');
+
+  const result = await execFileAsync(process.execPath, [cliPath, 'compact', file]);
+
+  assert.equal(result.stdout, [
+    '//# docs',
+    'a:number=1 //? required',
+    'b:string="two"',
+    '',
+  ].join('\n'));
+});
+
+test('CLI compact can preserve regular comments', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
+  const file = join(dir, 'doc.aeon');
+  await writeFile(file, '// plain\na = 1', 'utf8');
+
+  const result = await execFileAsync(process.execPath, [cliPath, 'compact', file, '--comments', 'all']);
+
+  assert.equal(result.stdout, '// plain\na=1\n');
+});
+
+test('CLI prettify writes expanded AEON with --write', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
+  const file = join(dir, 'doc.aeon');
+  await writeFile(file, 'aeon:mode="strict"\napp:object={name:string="Aeon"}', 'utf8');
+
+  await execFileAsync(process.execPath, [cliPath, 'prettify', file, '--write', '--no-log']);
+  const written = await readFile(file, 'utf8');
+
+  assert.equal(written, [
+    'aeon:mode = "strict"',
+    'app:object = {',
+    '  name:string = "Aeon"',
+    '}',
+    '',
+  ].join('\n'));
+});
+
 test('CLI writes edited AEON with --out', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
   const file = join(dir, 'doc.aeon');

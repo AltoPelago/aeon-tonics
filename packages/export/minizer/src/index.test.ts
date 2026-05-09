@@ -34,6 +34,38 @@ test('minimize renders binding annotations and quoted keys compactly', () => {
   assert.equal(result.text, 'value@{meta:string="ok","odd key"=false}:int32=1');
 });
 
+test('minimize renders lowered aeon shortcut headers without datatypes', () => {
+  const source = [
+    'aeon:header = {',
+    '  mode:string = "strict"',
+    '  encoding:string = "utf-8"',
+    '  profile:string = "aeon.gp.profile.v1"',
+    '  version:string = "1"',
+    '}',
+  ].join('\n');
+  const compiled = compile(source);
+
+  assert.equal(compiled.errors.length, 0);
+
+  const result = minimize(compiled.events);
+  assert.equal(
+    result.text,
+    [
+      'aeon:mode="strict"',
+      'aeon:encoding="utf-8"',
+      'aeon:profile="aeon.gp.profile.v1"',
+      'aeon:version="1"',
+    ].join('\n'),
+  );
+
+  const roundTrip = compile(result.text);
+  assert.equal(roundTrip.errors.length, 0);
+  assert.deepEqual(
+    roundTrip.events.map((event) => ({ path: formatPath(event.path), type: event.value.type })),
+    compiled.events.map((event) => ({ path: formatPath(event.path), type: event.value.type })),
+  );
+});
+
 test('minimize can add a trailing newline when requested', () => {
   const compiled = compile('name = "AEON"');
   assert.equal(compiled.errors.length, 0);
