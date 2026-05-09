@@ -73,6 +73,56 @@ test('convertAeonMode preserves transport-shaped datatypes while stripping plain
   assert.equal(compile(result.text).errors.length, 0);
 });
 
+test('convertAeonMode preserves explicit custom datatypes when converting to transport', () => {
+  const source = [
+    'aeon:mode = "custom"',
+    'name:label = "Aeon"',
+    'meta@{ tag:label = "docs" }:object = { score:rating = 5 }',
+    'items:list<label> = [:label = "one", :string = "two"]',
+  ].join('\n');
+
+  const result = convertAeonMode(source, { target: 'transport' });
+
+  assert.equal(result.text, [
+    'aeon:mode="transport"',
+    'name:label="Aeon"',
+    'meta@{tag:label="docs"}={score:rating=5}',
+    'items:list<label>=[:label="one","two"]',
+  ].join('\n'));
+  assert.equal(compile(result.text).errors.length, 0);
+});
+
+test('convertAeonMode converts to custom mode while preserving custom datatypes and inferring missing ones', () => {
+  const source = [
+    'aeon:mode = "transport"',
+    'name:label = "Aeon"',
+    'count = 1',
+    'items = [1, "two"]',
+  ].join('\n');
+
+  const result = convertAeonMode(source, { target: 'custom' });
+
+  assert.equal(result.text, [
+    'aeon:mode="custom"',
+    'name:label="Aeon"',
+    'count:number=1',
+    'items:list=[:number=1,:string="two"]',
+  ].join('\n'));
+  assert.equal(compile(result.text).errors.length, 0);
+});
+
+test('convertAeonMode rejects explicit custom datatypes when converting to strict', () => {
+  assert.throws(
+    () => convertAeonMode('aeon:mode = "transport"\nname:label = "Aeon"', { target: 'strict' }),
+    /Cannot convert custom datatype to strict mode: label/,
+  );
+
+  assert.throws(
+    () => convertAeonMode('aeon:mode = "transport"\nitems:list<label> = ["one"]', { target: 'strict' }),
+    /Cannot convert custom datatype to strict mode: list<label>/,
+  );
+});
+
 test('convertAeonMode strips node literal datatypes in transport mode', () => {
   const source = [
     'aeon:mode = "strict"',

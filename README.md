@@ -172,9 +172,8 @@ Core examples:
   Consumes AEON source and emits compact AEON while preserving semantic comments
   by default.
 - `@aeon-tonics/mode-converter`
-  Converts AEON between strict and transport mode by stripping or inferring
-  datatypes while preserving transport-sensitive datatypes such as `embed`,
-  `inline`, and `envelope`.
+  Converts AEON between strict, transport, and custom mode by stripping,
+  preserving, or inferring datatypes according to each mode boundary.
 - `@aeon-tonics/prettifier`
   Consumes AEON or AES and emits readable AEON text while preserving event order.
 - `@aeon-tonics/titonic`

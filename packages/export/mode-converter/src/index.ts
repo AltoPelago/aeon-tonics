@@ -13,7 +13,7 @@ import type {
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import { minimize } from '../../minizer/dist/index.js';
 
-export type AeonModeConversionTarget = 'strict' | 'transport';
+export type AeonModeConversionTarget = 'strict' | 'transport' | 'custom';
 
 export interface ConvertAeonModeOptions {
   readonly target: AeonModeConversionTarget;
@@ -27,6 +27,17 @@ export interface ConvertAeonModeResult {
 
 const DEFAULT_PRESERVED_DATATYPES = new Set(['embed', 'inline', 'envelope']);
 const FIXED_RADIX_DATATYPES = new Set(['radix2', 'radix6', 'radix8', 'radix12']);
+const RESERVED_V1_DATATYPES = new Set([
+  'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
+  'uint', 'uint8', 'uint16', 'uint32', 'uint64',
+  'float', 'float32', 'float64',
+  'string', 'trimtick', 'prose', 'boolean', 'bool', 'switch', 'infinity', 'nan',
+  'hex', 'date', 'time', 'datetime', 'zrut',
+  'encoding', 'base64', 'embed', 'inline',
+  'radix', 'radix2', 'radix6', 'radix8', 'radix12',
+  'sep', 'set',
+  'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
+]);
 
 interface InferenceContext {
   readonly pathToEvent: ReadonlyMap<string, AssignmentEvent>;
@@ -53,6 +64,9 @@ export function convertAeonMode(source: string, options: ConvertAeonModeOptions)
     ...DEFAULT_PRESERVED_DATATYPES,
     ...(options.preserveDatatypes ?? []),
   ].map((datatype) => datatype.toLowerCase()));
+  if (options.target === 'strict') {
+    assertNoCustomDatatypes(compiled.events);
+  }
   const converted = convertEvents(compiled.events, options.target, preserve);
   return minimize(converted, options.trailingNewline === undefined ? {} : { trailingNewline: options.trailingNewline });
 }
@@ -103,7 +117,7 @@ function convertValue(
         }
         return { ...value, datatype: null, attributes, value: convertedInner };
       }
-      const nextDatatype = target === 'strict'
+      const nextDatatype = target !== 'transport'
         ? value.datatype ?? createTypeAnnotation(inferDatatype(convertedInner, inference), value)
         : value.datatype;
       return { ...value, datatype: nextDatatype, attributes, value: convertedInner };
@@ -138,7 +152,7 @@ function convertValue(
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
-      return target === 'strict' && anonymous
+      return target !== 'transport' && anonymous
         ? createTypedValue(inferDatatype(value, inference), value)
         : value;
     default: {
@@ -155,7 +169,7 @@ function convertElementValue(
   inference: InferenceContext,
 ): Value {
   const converted = convertValue(value, target, preserve, true, inference);
-  return target === 'strict' && converted.type !== 'TypedValue'
+  return target !== 'transport' && converted.type !== 'TypedValue'
     ? createTypedValue(inferDatatype(converted, inference), converted)
     : converted;
 }
@@ -179,7 +193,7 @@ function convertNodeLiteral(
   inference: InferenceContext,
 ): NodeLiteral {
   const currentDatatype = formatDatatype(value.datatype);
-  const datatype = target === 'strict'
+  const datatype = target !== 'transport'
     ? value.datatype ?? createTypeAnnotation('node', value)
     : shouldPreserveDatatype(currentDatatype, preserve) ? value.datatype : null;
   return {
@@ -488,13 +502,108 @@ function createInferenceContext(events: readonly AssignmentEvent[]): InferenceCo
   };
 }
 
+function assertNoCustomDatatypes(events: readonly AssignmentEvent[]): void {
+  for (const event of events) {
+    assertStringDatatypeIsReserved(event.datatype);
+    assertValueHasNoCustomDatatypes(event.value);
+    assertAnnotationMapHasNoCustomDatatypes(event.annotations);
+  }
+}
+
+function assertValueHasNoCustomDatatypes(value: Value): void {
+  switch (value.type) {
+    case 'TypedValue':
+      assertTypeAnnotationIsReserved(value.datatype);
+      assertAttributesHaveNoCustomDatatypes(value.attributes);
+      assertValueHasNoCustomDatatypes(value.value);
+      return;
+    case 'ObjectNode':
+      assertAttributesHaveNoCustomDatatypes(value.attributes);
+      for (const binding of value.bindings) {
+        assertTypeAnnotationIsReserved(binding.datatype);
+        assertAttributesHaveNoCustomDatatypes(binding.attributes);
+        assertValueHasNoCustomDatatypes(binding.value);
+      }
+      return;
+    case 'ListNode':
+    case 'TupleLiteral':
+      assertAttributesHaveNoCustomDatatypes(value.attributes);
+      for (const element of value.elements) {
+        assertValueHasNoCustomDatatypes(element);
+      }
+      return;
+    case 'NodeLiteral':
+      assertTypeAnnotationIsReserved(value.datatype);
+      assertAttributesHaveNoCustomDatatypes(value.attributes);
+      for (const child of value.children) {
+        assertValueHasNoCustomDatatypes(child);
+      }
+      return;
+    case 'CloneReference':
+    case 'PointerReference':
+    case 'StringLiteral':
+    case 'NumberLiteral':
+    case 'InfinityLiteral':
+    case 'NaNLiteral':
+    case 'NullLiteral':
+    case 'BooleanLiteral':
+    case 'SwitchLiteral':
+    case 'HexLiteral':
+    case 'RadixLiteral':
+    case 'EncodingLiteral':
+    case 'SeparatorLiteral':
+    case 'DateLiteral':
+    case 'DateTimeLiteral':
+    case 'TimeLiteral':
+      return;
+    default: {
+      const exhaustive: never = value;
+      return exhaustive;
+    }
+  }
+}
+
+function assertAttributesHaveNoCustomDatatypes(attributes: readonly Attribute[]): void {
+  for (const attribute of attributes) {
+    for (const entry of attribute.entries.values()) {
+      assertTypeAnnotationIsReserved(entry.datatype);
+      assertAttributesHaveNoCustomDatatypes(entry.attributes);
+      assertValueHasNoCustomDatatypes(entry.value);
+    }
+  }
+}
+
+function assertAnnotationMapHasNoCustomDatatypes(annotations: ReadonlyMap<string, AttributeEntry> | undefined): void {
+  if (!annotations) {
+    return;
+  }
+
+  for (const entry of annotations.values()) {
+    assertStringDatatypeIsReserved(entry.datatype);
+    assertValueHasNoCustomDatatypes(entry.value);
+    assertAnnotationMapHasNoCustomDatatypes(entry.annotations);
+  }
+}
+
+function assertTypeAnnotationIsReserved(datatype: TypeAnnotation | null): void {
+  if (datatype) {
+    assertStringDatatypeIsReserved(formatDatatype(datatype));
+  }
+}
+
+function assertStringDatatypeIsReserved(datatype: string | undefined): void {
+  if (datatype && isCustomDatatype(datatype)) {
+    throw new Error(`Cannot convert custom datatype to strict mode: ${datatype}`);
+  }
+}
+
 function shouldPreserveDatatype(datatype: string | undefined, preserve: ReadonlySet<string>): boolean {
   if (!datatype) {
     return false;
   }
 
   const base = datatypeBase(datatype).toLowerCase();
-  return preserve.has(base) || FIXED_RADIX_DATATYPES.has(base) || hasDatatypeShape(datatype);
+  return preserve.has(base) || FIXED_RADIX_DATATYPES.has(base) || hasDatatypeShape(datatype) || isCustomDatatype(datatype);
 }
 
 function datatypeBase(datatype: string): string {
@@ -508,6 +617,12 @@ function datatypeBase(datatype: string): string {
 
 function hasDatatypeShape(datatype: string): boolean {
   return datatype.includes('<') || datatype.includes('[');
+}
+
+function isCustomDatatype(datatype: string): boolean {
+  const bracketless = datatype.replace(/\[[^\]]*\]/g, '');
+  const names = bracketless.match(/[A-Za-z_][A-Za-z0-9_.:-]*/g) ?? [];
+  return names.some((name) => !RESERVED_V1_DATATYPES.has(name.toLowerCase()));
 }
 
 function formatDatatype(datatype: TypeAnnotation | null): string {

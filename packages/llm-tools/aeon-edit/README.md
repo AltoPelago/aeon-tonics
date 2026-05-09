@@ -20,6 +20,7 @@ aeon-edit compact file.aeon
 aeon-edit compact file.aeon --comments all
 aeon-edit convert-mode file.aeon transport
 aeon-edit convert-mode file.aeon strict
+aeon-edit convert-mode file.aeon custom
 aeon-edit prettify file.aeon
 aeon-edit prettify file.aeon --write
 aeon-edit plan-set file.aeon $.path '2'

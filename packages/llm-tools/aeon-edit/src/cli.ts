@@ -1150,10 +1150,10 @@ function required(value: string | undefined, label: string): string {
 }
 
 function parseModeTarget(value: string): AeonModeConversionTarget {
-  if (value === 'strict' || value === 'transport') {
+  if (value === 'strict' || value === 'transport' || value === 'custom') {
     return value;
   }
-  throw new Error(`Invalid mode target: ${value}. Expected strict or transport.`);
+  throw new Error(`Invalid mode target: ${value}. Expected strict, transport, or custom.`);
 }
 
 function usage(): string {
@@ -1163,7 +1163,7 @@ function usage(): string {
     '  aeon-edit inspect <file.aeon> <path> [--json]',
     '  aeon-edit list <file.aeon> [--json]',
     '  aeon-edit compact <file.aeon> [--comments semantic|all|none] [--out file | --write] [--json]',
-    '  aeon-edit convert-mode <file.aeon> strict|transport [--out file | --write] [--json]',
+    '  aeon-edit convert-mode <file.aeon> strict|transport|custom [--out file | --write] [--json]',
     '  aeon-edit prettify <file.aeon> [--out file | --write] [--json]',
     '  aeon-edit plan-set <file.aeon> <path> <aeon-value> [--json]',
     '  aeon-edit plan-attr-set <file.aeon> <path> <key> <aeon-value> [--json]',

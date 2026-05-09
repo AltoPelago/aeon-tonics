@@ -137,6 +137,16 @@ test('CLI converts transport AEON to strict mode', async () => {
   );
 });
 
+test('CLI converts transport AEON to custom mode', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
+  const file = join(dir, 'doc.aeon');
+  await writeFile(file, 'aeon:mode = "transport"\nname:label = "Aeon"\ncount = 1', 'utf8');
+
+  const result = await execFileAsync(process.execPath, [cliPath, 'convert-mode', file, 'custom']);
+
+  assert.equal(result.stdout, 'aeon:mode="custom"\nname:label="Aeon"\ncount:number=1\n');
+});
+
 test('CLI prettify writes expanded AEON with --write', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
   const file = join(dir, 'doc.aeon');
