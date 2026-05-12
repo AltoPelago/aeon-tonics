@@ -190,7 +190,7 @@ test('convertAeonMode infers datatypes when converting transport to strict', () 
     'name:string="Aeon"',
     'count:number=1',
     'enabled:boolean=true',
-    'choice:switch=on',
+    'choice:toggle=on',
     'color:hex=#AABBCC',
     'release:sep=^1.2.0',
     'day:date=2026-05-09',

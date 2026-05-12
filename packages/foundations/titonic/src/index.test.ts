@@ -283,7 +283,7 @@ test('titonic preserves binding attributes through lookup and export', () => {
 test('titonic preserves AEON-native scalar wrappers through read, write, and export', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'enabled:switch = yes',
+    'enabled:toggle = yes',
     'color:hex = #Ff_00_Aa',
     'mask:radix[10] = %1A',
     'payload:embed = $QmFzZTY0IQ==',
@@ -314,7 +314,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nenabled:switch=off\ncolor:hex=#00FF00\nmask:radix[10]=%2B\npayload:embed=$SGVsbG8=\nparts:set[|]=^x|y\nday:date=2026-04-25\nstamp:datetime=2026-04-25T10:45:00Z\nopens:time=10:45:00Z',
+    'aeon:mode="strict"\nenabled:toggle=off\ncolor:hex=#00FF00\nmask:radix[10]=%2B\npayload:embed=$SGVsbG8=\nparts:set[|]=^x|y\nday:date=2026-04-25\nstamp:datetime=2026-04-25T10:45:00Z\nopens:time=10:45:00Z',
   );
 });
 
