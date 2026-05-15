@@ -22,7 +22,7 @@ export interface TitonicExportAeonOptions {
 }
 
 export type TitonicNativeScalarKind =
-  | 'switch'
+  | 'toggle'
   | 'hex'
   | 'radix'
   | 'encoding'
@@ -203,7 +203,7 @@ const TUPLE_DATATYPES = new Set(['tuple']);
 const NODE_DATATYPES = new Set(['node']);
 const NAN_DATATYPES = new Set(['nan']);
 const INFINITY_DATATYPES = new Set(['infinity']);
-const SWITCH_DATATYPES = new Set(['switch']);
+const TOGGLE_DATATYPES = new Set(['toggle']);
 const HEX_DATATYPES = new Set(['hex']);
 const RADIX_DATATYPES = new Set(['radix', 'radix2', 'radix6', 'radix8', 'radix12']);
 const ENCODING_DATATYPES = new Set(['encoding', 'base64', 'embed', 'inline']);
@@ -212,8 +212,8 @@ const DATE_DATATYPES = new Set(['date']);
 const DATETIME_DATATYPES = new Set(['datetime', 'zrut']);
 const TIME_DATATYPES = new Set(['time']);
 
-export function titonicSwitch(value: 'yes' | 'no' | 'on' | 'off'): TitonicNativeScalar {
-  return createNativeScalar('switch', value);
+export function titonicToggle(value: 'yes' | 'no' | 'on' | 'off'): TitonicNativeScalar {
+  return createNativeScalar('toggle', value);
 }
 
 export function titonicHex(raw: string): TitonicNativeScalar {
@@ -295,10 +295,10 @@ function isTitonicNativeScalar(value: unknown): value is TitonicNativeScalar {
 
 function normalizeNativeRaw(kind: TitonicNativeScalarKind, input: string): string {
   switch (kind) {
-    case 'switch': {
+    case 'toggle': {
       const normalized = input.toLowerCase();
       if (normalized !== 'yes' && normalized !== 'no' && normalized !== 'on' && normalized !== 'off') {
-        throw new TypeError('Titonic switch values must be one of yes, no, on, or off.');
+        throw new TypeError('Titonic toggle values must be one of yes, no, on, or off.');
       }
       return normalized;
     }
@@ -328,7 +328,7 @@ function nativeValueFromRaw(kind: TitonicNativeScalarKind, raw: string): string 
     case 'encoding':
     case 'separator':
       return raw.slice(1);
-    case 'switch':
+    case 'toggle':
     case 'date':
     case 'datetime':
     case 'time':
@@ -1333,8 +1333,8 @@ function nodeFromValue(
       return createScalarNode('infinity', value.value === '-Infinity' ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY, nodeMetadata(declaredDatatype ?? 'infinity', annotations, attributes));
     case 'NaNLiteral':
       return createScalarNode('nan', Number.NaN, nodeMetadata(declaredDatatype ?? 'nan', annotations, attributes));
-    case 'SwitchLiteral':
-      return createScalarNode('switch', createNativeScalar('switch', value.raw), metadata);
+    case 'ToggleLiteral':
+      return createScalarNode('toggle', createNativeScalar('toggle', value.raw), metadata);
     case 'HexLiteral':
       return createScalarNode('hex', createNativeScalar('hex', value.raw), metadata);
     case 'RadixLiteral':
@@ -1655,7 +1655,7 @@ function validateScalarAssignment(node: ScalarNode, value: unknown): void {
         throw new TypeError('Titonic null fields only accept null.');
       }
       return;
-    case 'switch':
+    case 'toggle':
     case 'hex':
     case 'radix':
     case 'encoding':
@@ -1849,10 +1849,10 @@ function scalarNodeToValue(node: ScalarNode): Value {
         raw: (node.value as number) < 0 ? '-Infinity' : 'Infinity',
         span: zeroSpan(),
       };
-    case 'switch': {
-      const native = requireNativeScalar(node, 'switch');
+    case 'toggle': {
+      const native = requireNativeScalar(node, 'toggle');
       return {
-        type: 'SwitchLiteral',
+        type: 'ToggleLiteral',
         value: native.value as 'yes' | 'no' | 'on' | 'off',
         raw: native.raw,
         span: zeroSpan(),
@@ -1976,7 +1976,7 @@ function classifyDatatype(datatype: string | undefined): StrictDatatype | Contai
   if (NODE_DATATYPES.has(datatypeBase)) return 'node';
   if (NAN_DATATYPES.has(datatype)) return 'nan';
   if (INFINITY_DATATYPES.has(datatype)) return 'infinity';
-  if (SWITCH_DATATYPES.has(datatype)) return 'switch';
+  if (TOGGLE_DATATYPES.has(datatype)) return 'toggle';
   if (HEX_DATATYPES.has(datatype)) return 'hex';
   if (RADIX_DATATYPES.has(datatypeBase)) return 'radix';
   if (ENCODING_DATATYPES.has(datatypeBase)) return 'encoding';

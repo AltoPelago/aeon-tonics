@@ -75,7 +75,7 @@ function renderValue(value: Value, context: RenderContext, depth: number): strin
     case 'NaNLiteral':
     case 'NullLiteral':
     case 'BooleanLiteral':
-    case 'SwitchLiteral':
+    case 'ToggleLiteral':
     case 'HexLiteral':
     case 'RadixLiteral':
     case 'EncodingLiteral':

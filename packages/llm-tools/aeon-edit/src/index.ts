@@ -1271,7 +1271,7 @@ function renderAstValueSnippet(value: AttributeEntry['value']): string {
     case 'NaNLiteral':
     case 'NullLiteral':
     case 'BooleanLiteral':
-    case 'SwitchLiteral':
+    case 'ToggleLiteral':
     case 'HexLiteral':
     case 'RadixLiteral':
     case 'EncodingLiteral':

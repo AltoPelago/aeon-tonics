@@ -35,7 +35,7 @@ import {
   titonicHex,
   titonicRadix,
   titonicSeparator,
-  titonicSwitch,
+  titonicToggle,
   titonicTime,
   type TitonicList,
   type TitonicElement,
@@ -298,7 +298,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
   assert.equal((titonic.mask as TitonicNativeScalar).kind, 'radix');
   assert.equal((titonic.parts as TitonicNativeScalar).value, 'a|b|c');
 
-  titonic.enabled = titonicSwitch('off');
+  titonic.enabled = titonicToggle('off');
   titonic.color = titonicHex('#00FF00');
   titonic.mask = titonicRadix('%2B');
   titonic.payload = titonicEncoding('$SGVsbG8=');

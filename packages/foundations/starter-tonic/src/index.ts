@@ -201,7 +201,7 @@ function materializeValue(value: Value): StarterSnapshotValue {
       return null;
     case 'InfinityLiteral':
     case 'NaNLiteral':
-    case 'SwitchLiteral':
+    case 'ToggleLiteral':
     case 'HexLiteral':
     case 'RadixLiteral':
     case 'EncodingLiteral':
@@ -284,7 +284,7 @@ function renderParsedValue(value: Value): string {
     case 'NaNLiteral':
     case 'NullLiteral':
     case 'BooleanLiteral':
-    case 'SwitchLiteral':
+    case 'ToggleLiteral':
     case 'HexLiteral':
     case 'RadixLiteral':
     case 'EncodingLiteral':
