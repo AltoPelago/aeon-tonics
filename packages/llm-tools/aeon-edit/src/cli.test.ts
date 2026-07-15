@@ -117,11 +117,11 @@ test('CLI compact can preserve regular comments', async () => {
 test('CLI converts strict AEON to transport mode', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-'));
   const file = join(dir, 'doc.aeon');
-  await writeFile(file, 'aeon:mode = "strict"\nname:string = "Aeon"\npayload:embed = $SGVsbG8=', 'utf8');
+  await writeFile(file, 'aeon:mode = "strict"\nname:string = "Aeon"\npayload:embed = &SGVsbG8=', 'utf8');
 
   const result = await execFileAsync(process.execPath, [cliPath, 'convert-mode', file, 'transport']);
 
-  assert.equal(result.stdout, 'aeon:mode="transport"\nname="Aeon"\npayload:embed=$SGVsbG8=\n');
+  assert.equal(result.stdout, 'aeon:mode="transport"\nname="Aeon"\npayload:embed=&SGVsbG8=\n');
 });
 
 test('CLI converts transport AEON to strict mode', async () => {

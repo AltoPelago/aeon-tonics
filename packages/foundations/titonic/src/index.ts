@@ -307,7 +307,7 @@ function normalizeNativeRaw(kind: TitonicNativeScalarKind, input: string): strin
     case 'radix':
       return input.startsWith('%') ? input : `%${input}`;
     case 'encoding':
-      return input.startsWith('$') ? input : `$${input}`;
+      return input.startsWith('&') ? input : `&${input}`;
     case 'separator':
       return input.startsWith('^') ? input : `^${input}`;
     case 'date':

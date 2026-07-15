@@ -27,20 +27,20 @@ test('convertAeonMode strips ordinary datatypes when converting strict to transp
 test('convertAeonMode preserves embed inline and envelope datatypes in transport mode', () => {
   const source = [
     'aeon:mode = "strict"',
-    'payload:embed = $SGVsbG8=',
-    'snippet:inline = $YWJj',
+    'payload:embed = &SGVsbG8=',
+    'snippet:inline = &YWJj',
     'close:envelope = { hash:hex = #AABBCC }',
-    'plain:encoding = $AAAA',
+    'plain:encoding = &AAAA',
   ].join('\n');
 
   const result = convertAeonMode(source, { target: 'transport' });
 
   assert.equal(result.text, [
     'aeon:mode="transport"',
-    'payload:embed=$SGVsbG8=',
-    'snippet:inline=$YWJj',
+    'payload:embed=&SGVsbG8=',
+    'snippet:inline=&YWJj',
     'close:envelope={hash=#AABBCC}',
-    'plain=$AAAA',
+    'plain=&AAAA',
   ].join('\n'));
 });
 

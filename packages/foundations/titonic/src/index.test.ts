@@ -286,7 +286,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
     'enabled:toggle = yes',
     'color:hex = #Ff_00_Aa',
     'mask:radix[10] = %1A',
-    'payload:embed = $QmFzZTY0IQ==',
+    'payload:embed = &QmFzZTY0IQ==',
     'parts:set[|] = ^a|b|c',
     'day:date = 2026-04-24',
     'stamp:datetime = 2026-04-24T09:30:00Z',
@@ -301,7 +301,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
   titonic.enabled = titonicToggle('off');
   titonic.color = titonicHex('#00FF00');
   titonic.mask = titonicRadix('%2B');
-  titonic.payload = titonicEncoding('$SGVsbG8=');
+  titonic.payload = titonicEncoding('&SGVsbG8=');
   titonic.parts = titonicSeparator('x|y');
   titonic.day = titonicDate('2026-04-25');
   titonic.stamp = titonicDateTime('2026-04-25T10:45:00Z');
@@ -314,7 +314,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nenabled:toggle=off\ncolor:hex=#00FF00\nmask:radix[10]=%2B\npayload:embed=$SGVsbG8=\nparts:set[|]=^x|y\nday:date=2026-04-25\nstamp:datetime=2026-04-25T10:45:00Z\nopens:time=10:45:00Z',
+    'aeon:mode="strict"\nenabled:toggle=off\ncolor:hex=#00FF00\nmask:radix[10]=%2B\npayload:embed=&SGVsbG8=\nparts:set[|]=^x|y\nday:date=2026-04-25\nstamp:datetime=2026-04-25T10:45:00Z\nopens:time=10:45:00Z',
   );
 });
 
