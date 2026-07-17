@@ -34,6 +34,20 @@ test('minimize renders binding annotations and quoted keys compactly', () => {
   assert.equal(result.text, 'value@{meta:string="ok","odd key"=false}:int32=1');
 });
 
+test('minimize renders SANSA address literals as raw literals', () => {
+  const source = 'link:sansa = $.inventory.items[2].sku';
+  const compiled = compile(source, { datatypePolicy: 'allow_custom' });
+
+  assert.equal(compiled.errors.length, 0);
+
+  const result = minimize(compiled.events);
+  assert.equal(result.text, 'link:sansa=$.inventory.items[2].sku');
+
+  const roundTrip = compile(result.text, { datatypePolicy: 'allow_custom' });
+  assert.equal(roundTrip.errors.length, 0);
+  assert.equal(roundTrip.events[0]?.value.type, 'SansaAddressLiteral');
+});
+
 test('minimize renders lowered aeon shortcut headers without datatypes', () => {
   const source = [
     'aeon:header = {',

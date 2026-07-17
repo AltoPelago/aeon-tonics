@@ -64,6 +64,7 @@ function renderValue(value: Value): string {
     case 'RadixLiteral':
     case 'EncodingLiteral':
     case 'SeparatorLiteral':
+    case 'SansaAddressLiteral':
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':

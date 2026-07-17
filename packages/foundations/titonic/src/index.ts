@@ -10,6 +10,11 @@ import type {
   TypeAnnotation,
   Value,
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
+import {
+  parseAddressOrThrow,
+  type SansaAddress,
+  type SansaSelector,
+} from '../../../../../sansa/src/index.js';
 import { minimize } from '../../../export/minizer/dist/index.js';
 
 export interface TitonicCreateOptions {
@@ -27,6 +32,7 @@ export type TitonicNativeScalarKind =
   | 'radix'
   | 'encoding'
   | 'separator'
+  | 'sansa'
   | 'date'
   | 'datetime'
   | 'time';
@@ -84,6 +90,36 @@ export interface TitonicObject {
 }
 export interface TitonicList extends Array<TitonicValue> {}
 export interface TitonicTuple extends Array<TitonicValue> {}
+
+export type TitonicResolveDiagnosticCode =
+  | 'TITONIC_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT'
+  | 'TITONIC_RESOLVE_UNSUPPORTED_ATTRIBUTE_SPACE'
+  | 'TITONIC_RESOLVE_UNSUPPORTED_LOCAL_SPACE';
+
+export interface TitonicResolveDiagnostic {
+  readonly code: TitonicResolveDiagnosticCode;
+  readonly message: string;
+  readonly selectorIndex?: number;
+}
+
+export interface TitonicResolveOptions {
+  readonly contextPath?: readonly TitonicPathSegment[];
+}
+
+export interface TitonicResolvedBinding {
+  readonly path: readonly TitonicPathSegment[];
+  readonly pathText: string;
+  readonly value: TitonicValue;
+  readonly datatype?: string;
+  readonly representationKind: string;
+}
+
+export interface TitonicResolveResult {
+  readonly address: SansaAddress;
+  readonly exact: boolean;
+  readonly bindings: readonly TitonicResolvedBinding[];
+  readonly diagnostics: readonly TitonicResolveDiagnostic[];
+}
 
 interface TitonicElementInit {
   readonly __titonicElementInit: true;
@@ -208,6 +244,7 @@ const HEX_DATATYPES = new Set(['hex']);
 const RADIX_DATATYPES = new Set(['radix', 'radix2', 'radix6', 'radix8', 'radix12']);
 const ENCODING_DATATYPES = new Set(['encoding', 'base64', 'embed', 'inline']);
 const SEPARATOR_DATATYPES = new Set(['sep', 'set']);
+const SANSA_DATATYPES = new Set(['sansa']);
 const DATE_DATATYPES = new Set(['date']);
 const DATETIME_DATATYPES = new Set(['datetime', 'zrut']);
 const TIME_DATATYPES = new Set(['time']);
@@ -230,6 +267,10 @@ export function titonicEncoding(raw: string): TitonicNativeScalar {
 
 export function titonicSeparator(raw: string): TitonicNativeScalar {
   return createNativeScalar('separator', raw);
+}
+
+export function titonicSansa(raw: string): TitonicNativeScalar {
+  return createNativeScalar('sansa', raw);
 }
 
 export function titonicDate(raw: string): TitonicNativeScalar {
@@ -310,6 +351,9 @@ function normalizeNativeRaw(kind: TitonicNativeScalarKind, input: string): strin
       return input.startsWith('&') ? input : `&${input}`;
     case 'separator':
       return input.startsWith('^') ? input : `^${input}`;
+    case 'sansa':
+      parseAddressOrThrow(input);
+      return input;
     case 'date':
     case 'datetime':
     case 'time':
@@ -328,6 +372,8 @@ function nativeValueFromRaw(kind: TitonicNativeScalarKind, raw: string): string 
     case 'encoding':
     case 'separator':
       return raw.slice(1);
+    case 'sansa':
+      return parseAddressOrThrow(raw).canonical;
     case 'toggle':
     case 'date':
     case 'datetime':
@@ -417,6 +463,55 @@ export function exportTitonicAeon(
   return minimize(exportTitonicAes(value), {
     trailingNewline: options.trailingNewline ?? true,
   }).text;
+}
+
+export function resolveTitonicAddress(
+  value: TitonicObject,
+  addressInput: string | SansaAddress,
+  options: TitonicResolveOptions = {},
+): TitonicResolveResult {
+  const controller = getController(value);
+  const address = typeof addressInput === 'string' ? parseAddressOrThrow(addressInput) : addressInput;
+  const diagnostics: TitonicResolveDiagnostic[] = [];
+  let candidates: readonly TitonicResolveCandidate[];
+
+  if (address.root.kind === 'contextual') {
+    if (!options.contextPath) {
+      return {
+        address,
+        exact: address.isExact,
+        bindings: [],
+        diagnostics: [{
+          code: 'TITONIC_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT',
+          message: 'Contextual SANSA roots require a Titonic contextPath.',
+        }],
+      };
+    }
+    const contextPath = normalizeTitonicPath(options.contextPath);
+    candidates = [{
+      path: contextPath,
+      node: contextPath.length === 0 ? controller.root : resolvePathNodeForRead(controller, contextPath),
+    }];
+  } else {
+    candidates = [{ path: [], node: controller.root }];
+  }
+
+  for (let index = 0; index < address.selectors.length; index += 1) {
+    const selector = address.selectors[index]!;
+    const step = resolveTitonicSelector(controller, candidates, selector, index);
+    candidates = step.candidates;
+    diagnostics.push(...step.diagnostics);
+    if (diagnostics.length > 0 || candidates.length === 0) {
+      break;
+    }
+  }
+
+  return {
+    address,
+    exact: address.isExact,
+    bindings: candidates.map((candidate) => bindingFromResolveCandidate(controller, candidate)),
+    diagnostics,
+  };
 }
 
 export function titonicAt(
@@ -896,6 +991,209 @@ function getControllerFromProxy(value: object): TitonicController {
   return controller;
 }
 
+interface TitonicResolveCandidate {
+  readonly path: readonly ReferencePathSegment[];
+  readonly node: TitonicNode;
+}
+
+interface TitonicResolveSelectorResult {
+  readonly candidates: readonly TitonicResolveCandidate[];
+  readonly diagnostics: readonly TitonicResolveDiagnostic[];
+}
+
+function resolveTitonicSelector(
+  controller: TitonicController,
+  candidates: readonly TitonicResolveCandidate[],
+  selector: SansaSelector,
+  selectorIndex: number,
+): TitonicResolveSelectorResult {
+  switch (selector.type) {
+    case 'member':
+      return { candidates: resolveMemberSelector(controller, candidates, selector.name), diagnostics: [] };
+    case 'position':
+      return { candidates: resolvePositionSelector(controller, candidates, selector.index), diagnostics: [] };
+    case 'directExpansion':
+      return { candidates: candidates.flatMap((candidate) => directTitonicChildren(controller, candidate)), diagnostics: [] };
+    case 'descendantExpansion':
+      return { candidates: candidates.flatMap((candidate) => descendantTitonicChildren(controller, candidate)), diagnostics: [] };
+    case 'namePattern':
+      return { candidates: resolveNamePatternSelector(controller, candidates, selector.pattern), diagnostics: [] };
+    case 'semanticTypeFilter':
+      return { candidates: candidates.filter((candidate) => matchesTitonicSemanticType(controller, candidate.node, selector.name)), diagnostics: [] };
+    case 'representationKindFilter':
+      return { candidates: candidates.filter((candidate) => representationKindForTitonicNode(candidate.node) === selector.name), diagnostics: [] };
+    case 'attributeSpace':
+      return {
+        candidates: [],
+        diagnostics: [{
+          code: 'TITONIC_RESOLVE_UNSUPPORTED_ATTRIBUTE_SPACE',
+          message: 'Titonic SANSA Resolve does not support attribute-space selectors yet.',
+          selectorIndex,
+        }],
+      };
+    case 'localSpace':
+      return {
+        candidates: [],
+        diagnostics: [{
+          code: 'TITONIC_RESOLVE_UNSUPPORTED_LOCAL_SPACE',
+          message: 'Titonic SANSA Resolve does not support local address-space selectors yet.',
+          selectorIndex,
+        }],
+      };
+    default: {
+      const exhaustive: never = selector;
+      return exhaustive;
+    }
+  }
+}
+
+function resolveMemberSelector(
+  controller: TitonicController,
+  candidates: readonly TitonicResolveCandidate[],
+  name: string,
+): readonly TitonicResolveCandidate[] {
+  const matches: TitonicResolveCandidate[] = [];
+  for (const candidate of candidates) {
+    const node = resolveReadableTitonicNode(controller, candidate.node);
+    if (node.kind !== 'object') {
+      continue;
+    }
+    const child = node.properties.get(name);
+    if (child) {
+      matches.push({ path: [...candidate.path, name], node: child });
+    }
+  }
+  return matches;
+}
+
+function resolvePositionSelector(
+  controller: TitonicController,
+  candidates: readonly TitonicResolveCandidate[],
+  index: number,
+): readonly TitonicResolveCandidate[] {
+  const matches: TitonicResolveCandidate[] = [];
+  for (const candidate of candidates) {
+    const node = resolveReadableTitonicNode(controller, candidate.node);
+    if (node.kind !== 'list' && node.kind !== 'tuple') {
+      continue;
+    }
+    const child = node.items[index];
+    if (child) {
+      matches.push({ path: [...candidate.path, index], node: child });
+    }
+  }
+  return matches;
+}
+
+function resolveNamePatternSelector(
+  controller: TitonicController,
+  candidates: readonly TitonicResolveCandidate[],
+  pattern: string,
+): readonly TitonicResolveCandidate[] {
+  const matcher = globPatternToRegExp(pattern);
+  return candidates.flatMap((candidate) =>
+    directTitonicChildren(controller, candidate).filter((child) => {
+      const key = child.path[child.path.length - 1];
+      return typeof key === 'string' && key !== ELEMENT_CHILDREN_SEGMENT && matcher.test(key);
+    }),
+  );
+}
+
+function directTitonicChildren(
+  controller: TitonicController,
+  candidate: TitonicResolveCandidate,
+): readonly TitonicResolveCandidate[] {
+  const node = resolveReadableTitonicNode(controller, candidate.node);
+  if (node.kind === 'object') {
+    return [...node.properties.entries()].map(([key, child]) => ({
+      path: [...candidate.path, key],
+      node: child,
+    }));
+  }
+  if (node.kind === 'list' || node.kind === 'tuple') {
+    return node.items.map((child, index) => ({
+      path: [...candidate.path, index],
+      node: child,
+    }));
+  }
+  if (node.kind === 'element') {
+    return node.children.items.map((child, index) => ({
+      path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
+      node: child,
+    }));
+  }
+  return [];
+}
+
+function descendantTitonicChildren(
+  controller: TitonicController,
+  candidate: TitonicResolveCandidate,
+): readonly TitonicResolveCandidate[] {
+  const children = directTitonicChildren(controller, candidate);
+  return children.flatMap((child) => [child, ...descendantTitonicChildren(controller, child)]);
+}
+
+function matchesTitonicSemanticType(
+  controller: TitonicController,
+  node: TitonicNode,
+  expected: string,
+): boolean {
+  const readable = resolveReadableTitonicNode(controller, node);
+  const datatype = node.declaredDatatype ?? (readable.kind === 'element' ? readable.headDatatype : undefined);
+  return datatype === expected || (datatype !== undefined && datatypeBaseName(datatype) === expected);
+}
+
+function resolveReadableTitonicNode(controller: TitonicController, node: TitonicNode): TitonicNode {
+  if (node.kind === 'pointer-alias' || node.kind === 'clone-view') {
+    return resolveAliasTarget(controller, node);
+  }
+  return node;
+}
+
+function bindingFromResolveCandidate(
+  controller: TitonicController,
+  candidate: TitonicResolveCandidate,
+): TitonicResolvedBinding {
+  return {
+    path: publicTitonicPath(candidate.path),
+    pathText: formatTitonicResolvePath(candidate.path),
+    value: controller.proxyFor(resolveReadableTitonicNode(controller, candidate.node)),
+    ...(candidate.node.declaredDatatype ? { datatype: candidate.node.declaredDatatype } : {}),
+    representationKind: representationKindForTitonicNode(candidate.node),
+  };
+}
+
+function publicTitonicPath(path: readonly ReferencePathSegment[]): readonly TitonicPathSegment[] {
+  return Object.freeze(path.map((segment) => segment === ELEMENT_CHILDREN_SEGMENT ? TITONIC_CHILDREN : segment));
+}
+
+function representationKindForTitonicNode(node: TitonicNode): string {
+  const type = nodeToAstValue(node).type;
+  return `${type.charAt(0).toLowerCase()}${type.slice(1)}`;
+}
+
+function globPatternToRegExp(pattern: string): RegExp {
+  let source = '^';
+  for (const char of pattern) {
+    if (char === '*') {
+      source += '.*';
+    } else if (char === '?') {
+      source += '.';
+    } else {
+      source += escapeRegExp(char);
+    }
+  }
+  return new RegExp(`${source}$`, 'u');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+function formatTitonicResolvePath(path: readonly ReferencePathSegment[]): string {
+  return formatReferencePathForError(path);
+}
+
 function createController(
   root: ObjectNode,
   headerEvents: readonly HeaderEvent[],
@@ -1343,6 +1641,8 @@ function nodeFromValue(
       return createScalarNode('encoding', createNativeScalar('encoding', value.raw), metadata);
     case 'SeparatorLiteral':
       return createScalarNode('separator', createNativeScalar('separator', value.raw), metadata);
+    case 'SansaAddressLiteral':
+      return createScalarNode('sansa', createNativeScalar('sansa', value.raw), metadata);
     case 'DateLiteral':
       return createScalarNode('date', createNativeScalar('date', value.raw), metadata);
     case 'DateTimeLiteral':
@@ -1660,6 +1960,7 @@ function validateScalarAssignment(node: ScalarNode, value: unknown): void {
     case 'radix':
     case 'encoding':
     case 'separator':
+    case 'sansa':
     case 'date':
     case 'datetime':
     case 'time':
@@ -1894,6 +2195,18 @@ function scalarNodeToValue(node: ScalarNode): Value {
         span: zeroSpan(),
       };
     }
+    case 'sansa': {
+      const native = requireNativeScalar(node, 'sansa');
+      const address = parseAddressOrThrow(native.raw);
+      return {
+        type: 'SansaAddressLiteral',
+        address,
+        value: address.canonical,
+        raw: native.raw,
+        canonical: address.canonical,
+        span: zeroSpan(),
+      };
+    }
     case 'date': {
       const native = requireNativeScalar(node, 'date');
       return {
@@ -1981,6 +2294,7 @@ function classifyDatatype(datatype: string | undefined): StrictDatatype | Contai
   if (RADIX_DATATYPES.has(datatypeBase)) return 'radix';
   if (ENCODING_DATATYPES.has(datatypeBase)) return 'encoding';
   if (SEPARATOR_DATATYPES.has(datatypeBase)) return 'separator';
+  if (SANSA_DATATYPES.has(datatypeBase)) return 'sansa';
   if (DATE_DATATYPES.has(datatypeBase)) return 'date';
   if (DATETIME_DATATYPES.has(datatypeBase)) return 'datetime';
   if (TIME_DATATYPES.has(datatypeBase)) return 'time';

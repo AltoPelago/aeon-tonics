@@ -20,6 +20,7 @@ import {
   getTitonicValue,
   isTitonic,
   isTitonicElement,
+  resolveTitonicAddress,
   TITONIC_CHILDREN,
   deleteTitonicNodeAttribute,
   setTitonicAttribute,
@@ -34,6 +35,7 @@ import {
   titonicEncoding,
   titonicHex,
   titonicRadix,
+  titonicSansa,
   titonicSeparator,
   titonicToggle,
   titonicTime,
@@ -329,6 +331,26 @@ test('titonic can create new AEON-native scalar fields from wrapper helpers', ()
     exportedAeon,
     'aeon:mode="strict"\ncolor:hex=#ABCDEF\ncreated:date=2026-04-24',
   );
+});
+
+test('titonic preserves SANSA address literals as native scalar values', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'link:sansa = $.inventory.items[2].sku',
+  ].join('\n'));
+
+  const link = titonic.link as TitonicNativeScalar;
+  assert.equal(link.kind, 'sansa');
+  assert.equal(link.value, '$.inventory.items[2].sku');
+
+  titonic.link = titonicSansa('?.name');
+
+  assert.throws(() => {
+    titonic.link = '$.name';
+  }, /sansa fields only accept titonicSansa/);
+
+  const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
+  assert.equal(exportedAeon, 'aeon:mode="strict"\nlink:sansa=?.name');
 });
 
 test('titonic supports fixed-arity tuple reads, indexed updates, and tuple export', () => {
@@ -776,6 +798,98 @@ test('titonic supports path-based addressing of node children', () => {
     exportedAeon,
     'aeon:mode="strict"\nview:node=<panel:node(<hr:node>,"world","tail")>',
   );
+});
+
+test('titonic resolves exact SANSA member and position addresses', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'inventory:object = { items:list = [{ sku:string = "A1", qty:number = 3 }, { sku:string = "B2", qty:number = 5 }] }',
+  ].join('\n'));
+
+  const result = resolveTitonicAddress(titonic, '$.inventory.items[1].sku');
+
+  assert.equal(result.exact, true);
+  assert.equal(result.diagnostics.length, 0);
+  assert.deepEqual(result.bindings.map((binding) => [binding.pathText, binding.value, binding.datatype]), [
+    ['$.inventory.items[1].sku', 'B2', 'string'],
+  ]);
+});
+
+test('titonic resolves SANSA direct expansion and representation filters', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'inventory:object = { items:list = [{ sku:string = "A1", qty:number = 3 }] }',
+  ].join('\n'));
+
+  const expanded = resolveTitonicAddress(titonic, '$.inventory.items[0].*');
+  const strings = resolveTitonicAddress(titonic, '$.inventory.items[0].*%stringLiteral');
+
+  assert.equal(expanded.exact, false);
+  assert.deepEqual(expanded.bindings.map((binding) => [binding.pathText, binding.representationKind]), [
+    ['$.inventory.items[0].sku', 'stringLiteral'],
+    ['$.inventory.items[0].qty', 'numberLiteral'],
+  ]);
+  assert.deepEqual(strings.bindings.map((binding) => binding.pathText), ['$.inventory.items[0].sku']);
+});
+
+test('titonic resolves SANSA descendant expansion and semantic type filters', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'inventory:object = { items:list = [{ sku:string = "A1", qty:number = 3 }, { sku:string = "B2", qty:number = 5 }] }',
+  ].join('\n'));
+
+  const result = resolveTitonicAddress(titonic, '$.inventory.**#number');
+
+  assert.equal(result.diagnostics.length, 0);
+  assert.deepEqual(result.bindings.map((binding) => [binding.pathText, binding.value]), [
+    ['$.inventory.items[0].qty', 3],
+    ['$.inventory.items[1].qty', 5],
+  ]);
+});
+
+test('titonic resolves SANSA name patterns with question-mark wildcards', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'inventory:object = { item_a:string = "A", item_b:string = "B", item_backup:string = "old", status:string = "ready" }',
+  ].join('\n'));
+
+  const result = resolveTitonicAddress(titonic, '$.inventory.("item?*")');
+
+  assert.deepEqual(result.bindings.map((binding) => [binding.pathText, binding.value]), [
+    ['$.inventory.item_a', 'A'],
+    ['$.inventory.item_b', 'B'],
+    ['$.inventory.item_backup', 'old'],
+  ]);
+});
+
+test('titonic resolves contextual SANSA roots from a provided path', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'inventory:object = { items:list = [{ sku:string = "A1" }, { sku:string = "B2" }] }',
+  ].join('\n'));
+
+  const result = resolveTitonicAddress(titonic, '?.sku', {
+    contextPath: ['inventory', 'items', 1],
+  });
+
+  assert.deepEqual(result.bindings.map((binding) => [binding.pathText, binding.value]), [
+    ['$.inventory.items[1].sku', 'B2'],
+  ]);
+});
+
+test('titonic reports unsupported SANSA address spaces in the first resolve slice', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'inventory@{source:string = "seed"}:object = { items:list = [] }',
+  ].join('\n'));
+
+  const contextual = resolveTitonicAddress(titonic, '?.items');
+  const attribute = resolveTitonicAddress(titonic, '$.inventory.@');
+  const local = resolveTitonicAddress(titonic, '$.inventory.<"schema">');
+
+  assert.equal(contextual.diagnostics[0]?.code, 'TITONIC_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT');
+  assert.equal(attribute.diagnostics[0]?.code, 'TITONIC_RESOLVE_UNSUPPORTED_ATTRIBUTE_SPACE');
+  assert.equal(local.diagnostics[0]?.code, 'TITONIC_RESOLVE_UNSUPPORTED_LOCAL_SPACE');
 });
 
 test('titonic applies node-child path mutation through pointer aliases and clone detachment', () => {
