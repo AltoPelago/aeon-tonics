@@ -461,8 +461,8 @@ function formatReferencePath(path: readonly unknown[]): string {
     if (segment && typeof segment === 'object' && 'key' in segment && typeof (segment as { readonly key?: unknown }).key === 'string') {
       const key = (segment as { readonly key: string }).key;
       result += /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
-        ? `.@${key}`
-        : `.@[${JSON.stringify(key)}]`;
+        ? `.@.${key}`
+        : `.@.[${JSON.stringify(key)}]`;
     }
   }
   return result;

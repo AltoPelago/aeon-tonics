@@ -47,6 +47,25 @@ test('graphAesEvents emits nodes plus containment and reference edges', () => {
   ]);
 });
 
+test('graphAesEvents renders reference attribute targets with explicit attribute-space segments', () => {
+  const compiled = compile(
+    'base@{meta:string = "x", "x.y":string = "dot"}:string = "x"\nref = ~base.@.meta\nquoted = ~base.@.["x.y"]',
+    { maxAttributeDepth: 2 },
+  );
+  assert.equal(compiled.errors.length, 0);
+
+  const graph = graphAesEvents(compiled.events, { file: 'doc.aeon' });
+
+  assert.deepEqual(
+    graph.edges.filter((edge) => edge.kind === 'clone').map((edge) => [edge.from, edge.to]),
+    [
+      ['$.ref', '$.base.@.meta'],
+      ['$.quoted', '$.base.@.["x.y"]'],
+    ],
+  );
+  assert.equal(graph.edges.some((edge) => edge.to.includes('base@')), false);
+});
+
 test('graphAeonFiles discovers files and filters incoming references', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-graph-'));
   const nested = join(dir, 'nested');

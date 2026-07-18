@@ -48,6 +48,23 @@ test('minimize renders SANSA address literals as raw literals', () => {
   assert.equal(roundTrip.events[0]?.value.type, 'SansaAddressLiteral');
 });
 
+test('minimize renders reference attribute paths with explicit attribute-space segments', () => {
+  const source = 'value@{meta:string = "ok", "x.y":string = "dot"} = 1\ncopy = ~value.@.meta\nquoted = ~value.@.["x.y"]';
+  const compiled = compile(source, { maxAttributeDepth: 2 });
+
+  assert.equal(compiled.errors.length, 0);
+
+  const result = minimize(compiled.events);
+  assert.equal(
+    result.text,
+    'value@{meta:string="ok","x.y":string="dot"}=1\ncopy=~value.@.meta\nquoted=~value.@.["x.y"]',
+  );
+  assert.doesNotMatch(result.text, /~value@/);
+
+  const roundTrip = compile(result.text, { maxAttributeDepth: 2 });
+  assert.equal(roundTrip.errors.length, 0);
+});
+
 test('minimize renders lowered aeon shortcut headers without datatypes', () => {
   const source = [
     'aeon:header = {',

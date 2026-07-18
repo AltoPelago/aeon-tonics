@@ -209,6 +209,7 @@ function materializeValue(value: Value): StarterSnapshotValue {
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
+    case 'SansaAddressLiteral':
       return value.raw;
     case 'ObjectNode':
       return Object.freeze(
@@ -292,6 +293,7 @@ function renderParsedValue(value: Value): string {
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
+    case 'SansaAddressLiteral':
       return value.raw;
     case 'ObjectNode':
       return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.datatype, binding.attributes)).join(',')}}`;
@@ -426,8 +428,8 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     }
     if (typeof segment === 'object' && segment.type === 'attr') {
       result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
-        ? `@${segment.key}`
-        : `@["${escapeQuotedPathSegment(segment.key)}"]`;
+        ? `.@.${segment.key}`
+        : `.@.["${escapeQuotedPathSegment(segment.key)}"]`;
       continue;
     }
 

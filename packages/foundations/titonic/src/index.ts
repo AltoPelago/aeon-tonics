@@ -2782,18 +2782,27 @@ function formatReferencePathForError(path: readonly ReferencePathSegment[]): str
   if (path.length === 0) {
     return '$';
   }
-  return `$.${path.map((segment) => {
+  let result = '$';
+  for (const segment of path) {
     if (segment === ELEMENT_CHILDREN_SEGMENT) {
-      return 'children';
+      result += '.children';
+      continue;
     }
     if (typeof segment === 'number') {
-      return `[${segment}]`;
+      result += `[${segment}]`;
+      continue;
     }
     if (typeof segment === 'object') {
-      return `@${segment.key}`;
+      result += /^[A-Za-z_][A-Za-z0-9_]*$/.test(segment.key)
+        ? `.@.${segment.key}`
+        : `.@.[${JSON.stringify(segment.key)}]`;
+      continue;
     }
-    return /^[A-Za-z_][A-Za-z0-9_]*$/.test(segment) ? segment : JSON.stringify(segment);
-  }).join('.')}`.replace('.[', '[');
+    result += /^[A-Za-z_][A-Za-z0-9_]*$/.test(segment)
+      ? `.${segment}`
+      : `.[${JSON.stringify(segment)}]`;
+  }
+  return result;
 }
 
 function isContainerNode(node: TitonicNode): node is ObjectNode | ListNode | TupleNode | ElementNode {

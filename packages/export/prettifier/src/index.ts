@@ -80,6 +80,7 @@ function renderValue(value: Value, context: RenderContext, depth: number): strin
     case 'RadixLiteral':
     case 'EncodingLiteral':
     case 'SeparatorLiteral':
+    case 'SansaAddressLiteral':
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
@@ -262,8 +263,8 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     }
     if (typeof segment === 'object' && segment.type === 'attr') {
       result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
-        ? `@${segment.key}`
-        : `@["${escapeQuotedPathSegment(segment.key)}"]`;
+        ? `.@.${segment.key}`
+        : `.@.["${escapeQuotedPathSegment(segment.key)}"]`;
       continue;
     }
 

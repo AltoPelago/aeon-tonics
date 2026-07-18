@@ -51,3 +51,19 @@ test('prettify renders lowered aeon shortcut headers without datatypes', () => {
   assert.equal(result.text, 'aeon:mode = "strict"\naeon:encoding = "utf-8"\n');
   assert.equal(compile(result.text).errors.length, 0);
 });
+
+test('prettify renders reference attribute paths with explicit attribute-space segments', () => {
+  const source = 'value@{meta:string="ok","x.y":string="dot"}=1\ncopy=~value.@.meta\nquoted=~value.@.["x.y"]';
+  const result = prettifyAeon(source);
+
+  assert.equal(
+    result.text,
+    [
+      'value@{meta:string = "ok", "x.y":string = "dot"} = 1',
+      'copy = ~value.@.meta',
+      'quoted = ~value.@.["x.y"]',
+    ].join('\n'),
+  );
+  assert.doesNotMatch(result.text, /~value@/);
+  assert.equal(compile(result.text, { maxAttributeDepth: 2 }).errors.length, 0);
+});

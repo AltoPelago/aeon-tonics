@@ -54,7 +54,7 @@ test('starter tonic supports top-level CRUD from plain js values and exports min
 });
 
 test('starter tonic can be created from aes and can set parsed values for advanced aeon forms', () => {
-  const compiled = compile('title:string = "Hello"\nview:node = <panel("child")>');
+  const compiled = compile('title@{lang:string = "en", "x.y":string = "dot"}:string = "Hello"\nview:node = <panel("child")>', { maxAttributeDepth: 2 });
   assert.equal(compiled.errors.length, 0);
 
   const doc = createStarterTonicFromAes(compiled.events);
@@ -64,8 +64,21 @@ test('starter tonic can be created from aes and can set parsed values for advanc
     span: compiled.events[0]!.value.span,
   };
   doc.setParsed('pointer', pointerValue);
+  doc.setParsed('lang', {
+    type: 'CloneReference',
+    path: ['title', { type: 'attr', key: 'lang' }],
+    span: compiled.events[0]!.value.span,
+  });
+  doc.setParsed('quoted', {
+    type: 'CloneReference',
+    path: ['title', { type: 'attr', key: 'x.y' }],
+    span: compiled.events[0]!.value.span,
+  });
 
   const exported = exportStarterTonicAes(doc);
-  assert.equal(exported.length, 3);
-  assert.equal(exportStarterTonicAeon(doc).text, 'title:string="Hello"\nview:node=<panel("child")>\npointer=~>title');
+  assert.equal(exported.length, 5);
+  assert.equal(
+    exportStarterTonicAeon(doc).text,
+    'title@{lang:string="en","x.y":string="dot"}:string="Hello"\nview:node=<panel("child")>\npointer=~>title\nlang=~title.@.lang\nquoted=~title.@.["x.y"]',
+  );
 });
