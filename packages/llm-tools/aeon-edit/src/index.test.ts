@@ -65,6 +65,18 @@ test('sets values from AEON snippets and exports edited AEON', () => {
   assert.match(result.output?.text ?? '', /count:number=2/);
 });
 
+test('preserves structural identities while editing values', () => {
+  const identifiedSource = String.raw`aeon:mode = "strict"
+app\APP\:object = { count\COUNT\:number = 1 }
+view\VIEW\:node = <panel\HEAD\>`;
+  const result = setAeonEditValue(identifiedSource, '$.app.count', '2');
+  const output = result.output?.text ?? '';
+
+  assert.match(output, /app\\APP\\:object/);
+  assert.match(output, /count\\COUNT\\:number=2/);
+  assert.match(output, /view\\VIEW\\:node=<panel\\HEAD\\>/);
+});
+
 test('deletes values and exports edited AEON', () => {
   const result = deleteAeonEditValue(source, '$.app.name');
 

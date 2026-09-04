@@ -88,3 +88,32 @@ test('starter tonic preserves datatype clarifiers', () => {
 
   assert.equal(exportStarterTonicAeon(doc).text, 'value:radix[16]=%ff');
 });
+
+test('starter tonic preserves structural identities through reads and unrelated writes', () => {
+  const doc = createStarterTonicFromAeon(String.raw`value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\(\CHILD\:string = "text")>`);
+
+  assert.equal(doc.get('value')?.structuralId, 'ROOT');
+  doc.set('other', true);
+
+  assert.equal(
+    exportStarterTonicAeon(doc).text,
+    String.raw`value\ROOT\@{source\META\:string="user"}=<tag\HEAD\(\CHILD\:string="text")>
+other=true`,
+  );
+});
+
+test('starter tonic renders explicit identities on newly parsed values', () => {
+  const compiled = compile(String.raw`source = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "text")>`);
+  assert.equal(compiled.errors.length, 0);
+  const value = compiled.events.find((event) => event.key === 'source')?.value;
+  assert.ok(value);
+
+  const doc = createStarterTonicFromAeon('seed = 1');
+  doc.setParsed('value', value, { structuralId: 'ROOT' });
+
+  assert.equal(
+    exportStarterTonicAeon(doc).text,
+    String.raw`seed=1
+value\ROOT\=<tag\HEAD\@{role\ROLE\="button"}(\CHILD\:string="text")>`,
+  );
+});

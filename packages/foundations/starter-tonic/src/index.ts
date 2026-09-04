@@ -10,6 +10,7 @@ import { minimize, type MinimizeOptions, type MinimizeResult } from '../../../ex
 
 export interface StarterTonicBinding {
   readonly key: string;
+  readonly structuralId?: string | null;
   readonly datatype?: string;
   readonly annotations?: ReadonlyMap<string, AttributeEntry>;
   readonly value: Value;
@@ -38,6 +39,7 @@ export type StarterSnapshotValue =
   | readonly StarterSnapshotValue[];
 
 export interface StarterSetOptions {
+  readonly structuralId?: string;
   readonly datatype?: string;
   readonly annotations?: ReadonlyMap<string, AttributeEntry>;
 }
@@ -141,6 +143,7 @@ export function exportStarterTonicAeon(
 function toBindingView(event: AssignmentEvent): StarterTonicBinding {
   return {
     key: event.key,
+    ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
     value: event.value,
     ...(event.datatype ? { datatype: event.datatype } : {}),
     ...(event.annotations ? { annotations: event.annotations } : {}),
@@ -164,7 +167,7 @@ function compileBindingSource(
   renderedValue: string,
   options: StarterSetOptions,
 ): AssignmentEvent {
-  const source = `${formatBindingKey(key)}${renderAnnotations(options.annotations)}${renderDatatype(options.datatype)}=${renderedValue}`;
+  const source = `${formatBindingKey(key)}${renderStructuralId(options.structuralId)}${renderAnnotations(options.annotations)}${renderDatatype(options.datatype)}=${renderedValue}`;
   const existing = minimize(existingEvents).text;
   const compileInput = existing.length > 0 ? `${existing}\n${source}` : source;
   const compileResult = compile(compileInput, {
@@ -277,7 +280,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function renderParsedValue(value: Value): string {
   switch (value.type) {
     case 'TypedValue':
-      return `${renderAttributes(value.attributes)}${formatTypeAnnotation(value.datatype)}=${renderParsedValue(value.value)}`;
+      return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${formatTypeAnnotation(value.datatype)}=${renderParsedValue(value.value)}`;
     case 'StringLiteral':
       return formatString(value.value);
     case 'NumberLiteral':
@@ -296,7 +299,7 @@ function renderParsedValue(value: Value): string {
     case 'SansaAddressLiteral':
       return value.raw;
     case 'ObjectNode':
-      return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.datatype, binding.attributes)).join(',')}}`;
+      return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.structuralId, binding.datatype, binding.attributes)).join(',')}}`;
     case 'ListNode':
       return `[${value.elements.map((element) => renderParsedValue(element)).join(',')}]`;
     case 'TupleLiteral':
@@ -317,10 +320,11 @@ function renderParsedValue(value: Value): string {
 function renderBinding(
   key: string,
   value: Value,
+  structuralId: string | null,
   datatype: TypeAnnotation | null,
   attributes: readonly Attribute[],
 ): string {
-  return `${formatBindingKey(key)}${renderAttributes(attributes)}${formatTypeAnnotation(datatype)}=${renderParsedValue(value)}`;
+  return `${formatBindingKey(key)}${renderStructuralId(structuralId)}${renderAttributes(attributes)}${formatTypeAnnotation(datatype)}=${renderParsedValue(value)}`;
 }
 
 function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
@@ -329,7 +333,7 @@ function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
   const children = value.children.length > 0
     ? `(${value.children.map((child) => renderParsedValue(child)).join(',')})`
     : '';
-  return `<${formatBindingKey(value.tag)}${attrs}${datatype}${children}>`;
+  return `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${attrs}${datatype}${children}>`;
 }
 
 function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
@@ -352,7 +356,7 @@ function renderAttributes(attributes: readonly Attribute[]): string {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
           const nested = renderAttributes(entry.attributes);
-          return `${formatBindingKey(key)}${nested}${formatTypeAnnotation(entry.datatype)}=${renderParsedValue(entry.value)}`;
+          return `${formatBindingKey(key)}${renderStructuralId(entry.structuralId)}${nested}${formatTypeAnnotation(entry.datatype)}=${renderParsedValue(entry.value)}`;
         })
         .join(',');
       return `@{${entries}}`;
@@ -361,7 +365,11 @@ function renderAttributes(attributes: readonly Attribute[]): string {
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry): string {
-  return `${formatBindingKey(key)}${renderAnnotations(entry.annotations)}${renderDatatype(entry.datatype)}=${renderParsedValue(entry.value)}`;
+  return `${formatBindingKey(key)}${renderStructuralId(entry.structuralId)}${renderAnnotations(entry.annotations)}${renderDatatype(entry.datatype)}=${renderParsedValue(entry.value)}`;
+}
+
+function renderStructuralId(structuralId: string | null | undefined): string {
+  return structuralId ? `\\${structuralId}\\` : '';
 }
 
 function renderDatatype(datatype: string | undefined): string {
