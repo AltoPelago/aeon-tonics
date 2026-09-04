@@ -32,7 +32,7 @@ const RESERVED_V1_DATATYPES = new Set([
   'uint', 'uint8', 'uint16', 'uint32', 'uint64',
   'float', 'float32', 'float64',
   'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'infinity', 'nan',
-  'hex', 'date', 'time', 'datetime', 'zrut',
+  'hex', 'date', 'time', 'datetime', 'wtc',
   'encoding', 'base64', 'embed', 'inline',
   'radix', 'radix2', 'radix6', 'radix8', 'radix12',
   'sep', 'set',
@@ -149,6 +149,7 @@ function convertValue(
     case 'RadixLiteral':
     case 'EncodingLiteral':
     case 'SeparatorLiteral':
+    case 'SansaAddressLiteral':
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
@@ -324,11 +325,12 @@ function inferDatatype(value: Value, inference?: InferenceContext, seenReference
     case 'EncodingLiteral':
       return 'encoding';
     case 'SeparatorLiteral':
+    case 'SansaAddressLiteral':
       return 'sep';
     case 'DateLiteral':
       return 'date';
     case 'DateTimeLiteral':
-      return 'datetime';
+      return value.raw.includes('&') ? 'wtc' : 'datetime';
     case 'TimeLiteral':
       return 'time';
     case 'ObjectNode':
@@ -555,6 +557,7 @@ function assertValueHasNoCustomDatatypes(value: Value): void {
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
+    case 'SansaAddressLiteral':
       return;
     default: {
       const exhaustive: never = value;
@@ -630,9 +633,10 @@ function formatDatatype(datatype: TypeAnnotation | null): string {
     return '';
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-  const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
-  const separators = datatype.separators.map((separator) => `[${separator}]`).join('');
-  return `${datatype.name}${generics}${radixBase}${separators}`;
+  const clarifiers = datatype.clarifiers.length > 0
+    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+    : '';
+  return `${datatype.name}${generics}${clarifiers}`;
 }
 
 function createTypeAnnotation(name: string, owner: { readonly span: TypeAnnotation['span'] }): TypeAnnotation {
@@ -640,8 +644,7 @@ function createTypeAnnotation(name: string, owner: { readonly span: TypeAnnotati
     type: 'TypeAnnotation',
     name,
     genericArgs: [],
-    radixBase: null,
-    separators: [],
+    clarifiers: [],
     span: owner.span,
   };
 }
@@ -649,6 +652,7 @@ function createTypeAnnotation(name: string, owner: { readonly span: TypeAnnotati
 function createTypedValue(datatype: string, value: Value): Value {
   return {
     type: 'TypedValue',
+    structuralId: null,
     datatype: createTypeAnnotation(datatype, value),
     attributes: [],
     value,

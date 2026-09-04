@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import { convertAeonMode } from './index.js';
 
+test('convertAeonMode preserves structural identities', () => {
+  const result = convertAeonMode(
+    'aeon:mode = "transport"\nage\\A1\\ = 42\nitems = [\\B2\\ = "green"]',
+    { target: 'strict' },
+  );
+  assert.equal(result.text, 'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]');
+});
+
 test('convertAeonMode strips ordinary datatypes when converting strict to transport', () => {
   const source = [
     'aeon:mode = "strict"',
@@ -51,7 +59,7 @@ test('convertAeonMode preserves transport-shaped datatypes while stripping plain
     'fixedRadix:radix2 = %1010',
     'shapedRadix:radix[12] = %22',
     'plainSep:sep = ^1.2.0',
-    'shapedSep:sep[.] = ^1.2.0',
+    'shapedSep:sep["."] = ^1.2.0',
     'plainList:list = [:n = 1, :n = 2]',
     'shapedList:list<n> = [:n = 1, :n = 2]',
     'shapedTuple:tuple<n, string> = (:n = 1, :string = "two")',
@@ -65,7 +73,7 @@ test('convertAeonMode preserves transport-shaped datatypes while stripping plain
     'fixedRadix:radix2=%1010',
     'shapedRadix:radix[12]=%22',
     'plainSep=^1.2.0',
-    'shapedSep:sep[.]=^1.2.0',
+    'shapedSep:sep["."]=^1.2.0',
     'plainList=[1,2]',
     'shapedList:list<n>=[1,2]',
     'shapedTuple:tuple<n, string>=(1,"two")',
@@ -145,7 +153,7 @@ test('convertAeonMode infers reference datatypes from their targets in strict mo
     'annotated @{ note = "hello" } = 3',
     'copy = ~base',
     'pointer = ~>base',
-    'noteCopy = ~annotated@note',
+    'noteCopy = ~annotated.@.note',
     'nested = { count = 2 }',
     'nestedCopy = ~nested.count',
     'items = [1, "two"]',
@@ -160,7 +168,7 @@ test('convertAeonMode infers reference datatypes from their targets in strict mo
     'annotated@{note:string="hello"}:number=3',
     'copy:number=~base',
     'pointer:number=~>base',
-    'noteCopy:string=~annotated@note',
+    'noteCopy:string=~annotated.@.note',
     'nested:object={count:number=2}',
     'nestedCopy:number=~nested.count',
     'items:list=[:number=1,:string="two"]',
@@ -179,6 +187,7 @@ test('convertAeonMode infers datatypes when converting transport to strict', () 
     'color = #AABBCC',
     'release = ^1.2.0',
     'day = 2026-05-09',
+    'meeting = 2026-05-09T09:30&Australia/Melbourne',
     'config = { enabled = true }',
     'items = [1, "two"]',
   ].join('\n');
@@ -194,6 +203,7 @@ test('convertAeonMode infers datatypes when converting transport to strict', () 
     'color:hex=#AABBCC',
     'release:sep=^1.2.0',
     'day:date=2026-05-09',
+    'meeting:wtc=2026-05-09T09:30&Australia/Melbourne',
     'config:object={enabled:boolean=true}',
     'items:list=[:number=1,:string="two"]',
   ].join('\n'));

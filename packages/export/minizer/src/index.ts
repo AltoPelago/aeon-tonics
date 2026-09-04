@@ -44,14 +44,15 @@ function renderTopLevelBinding(event: AssignmentEvent): string {
   const segment = event.path.segments[1] as RootMemberSegment;
   const aeonShortcutHeader = segment.key.startsWith('aeon:');
   const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key);
+  const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
   const datatype = aeonShortcutHeader ? '' : renderDatatype(event.datatype);
-  return `${key}${renderAnnotations(event.annotations)}${datatype}=${renderValue(event.value)}`;
+  return `${key}${structuralId}${renderAnnotations(event.annotations)}${datatype}=${renderValue(event.value)}`;
 }
 
 function renderValue(value: Value): string {
   switch (value.type) {
     case 'TypedValue':
-      return `${renderAttributes(value.attributes)}${formatDatatype(value.datatype)}=${renderValue(value.value)}`;
+      return `${renderStructuralIdentity(value.structuralId)}${renderAttributes(value.attributes)}${formatDatatype(value.datatype)}=${renderValue(value.value)}`;
     case 'StringLiteral':
       return formatString(value.value);
     case 'NumberLiteral':
@@ -70,7 +71,7 @@ function renderValue(value: Value): string {
     case 'TimeLiteral':
       return value.raw;
     case 'ObjectNode':
-      return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.datatype, binding.attributes)).join(',')}}`;
+      return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.datatype, binding.attributes, binding.structuralId)).join(',')}}`;
     case 'ListNode':
       return `[${value.elements.map((element) => renderValue(element)).join(',')}]`;
     case 'TupleLiteral':
@@ -93,8 +94,9 @@ function renderBinding(
   value: Value,
   datatype: TypeAnnotation | null,
   attributes: readonly Attribute[],
+  structuralId: string | null,
 ): string {
-  return `${formatBindingKey(key)}${renderAttributes(attributes)}${formatDatatype(datatype)}=${renderValue(value)}`;
+  return `${formatBindingKey(key)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes)}${formatDatatype(datatype)}=${renderValue(value)}`;
 }
 
 function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
@@ -151,11 +153,14 @@ function formatDatatype(
     return '';
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-  const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
-  const separators = datatype.separators.length > 0
-    ? datatype.separators.map((separator) => `[${separator}]`).join('')
+  const clarifiers = datatype.clarifiers.length > 0
+    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
     : '';
-  return `:${datatype.name}${generics}${radixBase}${separators}`;
+  return `:${datatype.name}${generics}${clarifiers}`;
+}
+
+function renderStructuralIdentity(structuralId: string | null | undefined): string {
+  return structuralId ? `\\${structuralId}\\` : '';
 }
 
 function formatBindingKey(key: string): string {

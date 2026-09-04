@@ -35,6 +35,7 @@ export type TitonicNativeScalarKind =
   | 'sansa'
   | 'date'
   | 'datetime'
+  | 'wtc'
   | 'time';
 
 export interface TitonicNativeScalar {
@@ -140,12 +141,14 @@ type StrictDatatype =
 type ContainerDatatype = 'object' | 'list' | 'tuple' | 'node';
 
 interface BaseNode {
+  structuralId?: string;
   declaredDatatype?: string;
   annotations?: ReadonlyMap<string, AttributeEntry>;
   attributes?: readonly Attribute[];
 }
 
 interface NodeMetadata {
+  structuralId?: string;
   declaredDatatype?: string;
   annotations?: ReadonlyMap<string, AttributeEntry>;
   attributes?: readonly Attribute[];
@@ -246,7 +249,8 @@ const ENCODING_DATATYPES = new Set(['encoding', 'base64', 'embed', 'inline']);
 const SEPARATOR_DATATYPES = new Set(['sep', 'set']);
 const SANSA_DATATYPES = new Set(['sansa']);
 const DATE_DATATYPES = new Set(['date']);
-const DATETIME_DATATYPES = new Set(['datetime', 'zrut']);
+const DATETIME_DATATYPES = new Set(['datetime']);
+const WTC_DATATYPES = new Set(['wtc']);
 const TIME_DATATYPES = new Set(['time']);
 
 export function titonicToggle(value: 'yes' | 'no' | 'on' | 'off'): TitonicNativeScalar {
@@ -279,6 +283,13 @@ export function titonicDate(raw: string): TitonicNativeScalar {
 
 export function titonicDateTime(raw: string): TitonicNativeScalar {
   return createNativeScalar('datetime', raw);
+}
+
+export function titonicWtc(raw: string): TitonicNativeScalar {
+  if (!raw.includes('&')) {
+    throw new TypeError('Titonic WTC values must contain a temporal reference.');
+  }
+  return createNativeScalar('wtc', raw);
 }
 
 export function titonicTime(raw: string): TitonicNativeScalar {
@@ -356,6 +367,7 @@ function normalizeNativeRaw(kind: TitonicNativeScalarKind, input: string): strin
       return input;
     case 'date':
     case 'datetime':
+    case 'wtc':
     case 'time':
       return input;
     default: {
@@ -377,6 +389,7 @@ function nativeValueFromRaw(kind: TitonicNativeScalarKind, raw: string): string 
     case 'toggle':
     case 'date':
     case 'datetime':
+    case 'wtc':
     case 'time':
       return raw;
     default: {
@@ -441,7 +454,7 @@ export function createTitonicFromAes(
     if (isHeaderEvent(event)) {
       continue;
     }
-    root.properties.set(event.key, nodeFromValue(event.value, event.datatype, event.annotations));
+    root.properties.set(event.key, nodeFromValue(event.value, event.datatype, event.annotations, undefined, event.structuralId ?? undefined));
   }
 
   return createController(root, headerEvents, strictMode).proxyFor(root) as TitonicObject;
@@ -1012,6 +1025,18 @@ function resolveTitonicSelector(
       return { candidates: resolveMemberSelector(controller, candidates, selector.name), diagnostics: [] };
     case 'position':
       return { candidates: resolvePositionSelector(controller, candidates, selector.index), diagnostics: [] };
+    case 'positionRange':
+      return { candidates: resolvePositionRangeSelector(controller, candidates, selector.start, selector.end), diagnostics: [] };
+    case 'parent':
+      return {
+        candidates: candidates
+          .filter((candidate) => candidate.path.length > 0)
+          .map((candidate) => {
+            const path = candidate.path.slice(0, -1);
+            return { path, node: path.length === 0 ? controller.root : resolvePathNodeForRead(controller, path) };
+          }),
+        diagnostics: [],
+      };
     case 'directExpansion':
       return { candidates: candidates.flatMap((candidate) => directTitonicChildren(controller, candidate)), diagnostics: [] };
     case 'descendantExpansion':
@@ -1080,6 +1105,26 @@ function resolvePositionSelector(
     const child = node.items[index];
     if (child) {
       matches.push({ path: [...candidate.path, index], node: child });
+    }
+  }
+  return matches;
+}
+
+function resolvePositionRangeSelector(
+  controller: TitonicController,
+  candidates: readonly TitonicResolveCandidate[],
+  start: number | null,
+  end: number | null,
+): readonly TitonicResolveCandidate[] {
+  const matches: TitonicResolveCandidate[] = [];
+  for (const candidate of candidates) {
+    const node = resolveReadableTitonicNode(controller, candidate.node);
+    if (node.kind !== 'list' && node.kind !== 'tuple') continue;
+    const first = start ?? 0;
+    const last = Math.min(end ?? node.items.length - 1, node.items.length - 1);
+    for (let index = first; index <= last; index += 1) {
+      const child = node.items[index];
+      if (child) matches.push({ path: [...candidate.path, index], node: child });
     }
   }
   return matches;
@@ -1609,8 +1654,9 @@ function nodeFromValue(
   declaredDatatype: string | undefined,
   annotations?: ReadonlyMap<string, AttributeEntry>,
   attributes?: readonly Attribute[],
+  structuralId?: string,
 ): TitonicNode {
-  const metadata = nodeMetadata(declaredDatatype, annotations, attributes);
+  const metadata = nodeMetadata(declaredDatatype, annotations, attributes, structuralId);
   switch (value.type) {
     case 'TypedValue':
       return nodeFromValue(
@@ -1618,6 +1664,7 @@ function nodeFromValue(
         value.datatype ? formatDatatypeAnnotation(value.datatype) : declaredDatatype,
         buildAnnotationMap(value.attributes) ?? annotations,
         value.attributes.length > 0 ? value.attributes : attributes,
+        value.structuralId ?? structuralId,
       );
     case 'StringLiteral':
       return createScalarNode('string', value.value, metadata);
@@ -1646,7 +1693,9 @@ function nodeFromValue(
     case 'DateLiteral':
       return createScalarNode('date', createNativeScalar('date', value.raw), metadata);
     case 'DateTimeLiteral':
-      return createScalarNode('datetime', createNativeScalar('datetime', value.raw), metadata);
+      return value.raw.includes('&') || datatypeBaseName(declaredDatatype ?? '') === 'wtc'
+        ? createScalarNode('wtc', createNativeScalar('wtc', value.raw), metadata)
+        : createScalarNode('datetime', createNativeScalar('datetime', value.raw), metadata);
     case 'TimeLiteral':
       return createScalarNode('time', createNativeScalar('time', value.raw), metadata);
     case 'ObjectNode': {
@@ -1716,6 +1765,7 @@ function nodeFromBinding(binding: Binding): TitonicNode {
     binding.datatype ? formatDatatypeAnnotation(binding.datatype) : undefined,
     buildAnnotationMap(binding.attributes),
     binding.attributes,
+    binding.structuralId ?? undefined,
   );
 }
 
@@ -1866,12 +1916,12 @@ function replaceListItemNode(existing: TitonicNode, value: unknown, controller: 
 }
 
 function preserveDeclaredDatatype(existing: TitonicNode, created: TitonicNode): TitonicNode {
-  if (!existing.declaredDatatype && !existing.annotations && !existing.attributes) {
+  if (!existing.declaredDatatype && !existing.annotations && !existing.attributes && !existing.structuralId) {
     return created;
   }
   return {
     ...created,
-    ...nodeMetadata(existing.declaredDatatype, existing.annotations, existing.attributes),
+    ...nodeMetadata(existing.declaredDatatype, existing.annotations, existing.attributes, existing.structuralId),
   } as TitonicNode;
 }
 
@@ -1963,6 +2013,7 @@ function validateScalarAssignment(node: ScalarNode, value: unknown): void {
     case 'sansa':
     case 'date':
     case 'datetime':
+    case 'wtc':
     case 'time':
       if (!isTitonicNativeScalar(value) || value.kind !== expected) {
         throw new TypeError(`Titonic ${expected} fields only accept titonic${capitalizeKind(expected)}() values.`);
@@ -2007,6 +2058,7 @@ function emitNodeEvents(
   out.push({
     path: { segments: [...path] },
     key,
+    ...(node.structuralId ? { structuralId: node.structuralId } : {}),
     value,
     span: zeroSpan(),
     ...(node.declaredDatatype ? { datatype: node.declaredDatatype } : {}),
@@ -2050,6 +2102,7 @@ function nodeToAstValue(node: TitonicNode): Value {
         bindings: [...node.properties.entries()].map(([key, child]) => ({
           type: 'Binding',
           key,
+          structuralId: child.structuralId ?? null,
           value: nodeToAstValue(child),
           datatype: child.declaredDatatype ? datatypeFromName(child.declaredDatatype) : null,
           attributes: child.attributes ?? attributesFromAnnotationMap(child.annotations),
@@ -2061,14 +2114,14 @@ function nodeToAstValue(node: TitonicNode): Value {
     case 'list':
       return {
         type: 'ListNode',
-        elements: node.items.map((child) => nodeToAstValue(child)),
+        elements: node.items.map(nodeToAstHeadedValue),
         attributes: [],
         span: zeroSpan(),
       };
     case 'tuple':
       return {
         type: 'TupleLiteral',
-        elements: node.items.map((child) => nodeToAstValue(child)),
+        elements: node.items.map(nodeToAstHeadedValue),
         attributes: [],
         raw: `(${node.items.map(() => '').join(',')})`,
         span: zeroSpan(),
@@ -2079,7 +2132,7 @@ function nodeToAstValue(node: TitonicNode): Value {
         tag: node.tag,
         attributes: node.headAttributes ?? attributesFromAnnotationMap(node.headAnnotations),
         datatype: node.headDatatype ? datatypeFromName(node.headDatatype) : null,
-        children: node.children.items.map((child) => nodeToAstValue(child)),
+        children: node.children.items.map(nodeToAstHeadedValue),
         span: zeroSpan(),
       };
     case 'pointer-alias':
@@ -2102,6 +2155,22 @@ function nodeToAstValue(node: TitonicNode): Value {
       return exhaustive;
     }
   }
+}
+
+function nodeToAstHeadedValue(node: TitonicNode): Value {
+  const value = nodeToAstValue(node);
+  const attributes = node.attributes ?? attributesFromAnnotationMap(node.annotations);
+  if (!node.structuralId && !node.declaredDatatype && attributes.length === 0) {
+    return value;
+  }
+  return {
+    type: 'TypedValue',
+    structuralId: node.structuralId ?? null,
+    datatype: node.declaredDatatype ? datatypeFromName(node.declaredDatatype) : null,
+    attributes,
+    value,
+    span: zeroSpan(),
+  };
 }
 
 function scalarNodeToValue(node: ScalarNode): Value {
@@ -2225,6 +2294,15 @@ function scalarNodeToValue(node: ScalarNode): Value {
         span: zeroSpan(),
       };
     }
+    case 'wtc': {
+      const native = requireNativeScalar(node, 'wtc');
+      return {
+        type: 'DateTimeLiteral',
+        value: native.value,
+        raw: native.raw,
+        span: zeroSpan(),
+      };
+    }
     case 'time': {
       const native = requireNativeScalar(node, 'time');
       return {
@@ -2258,7 +2336,7 @@ function preserveAttributeEntryMetadata(
   const annotations = existing?.annotations ?? node.annotations;
   return {
     ...node,
-    ...nodeMetadata(datatype, annotations, node.attributes),
+    ...nodeMetadata(datatype, annotations, node.attributes, node.structuralId),
   } as TitonicNode;
 }
 
@@ -2297,6 +2375,7 @@ function classifyDatatype(datatype: string | undefined): StrictDatatype | Contai
   if (SANSA_DATATYPES.has(datatypeBase)) return 'sansa';
   if (DATE_DATATYPES.has(datatypeBase)) return 'date';
   if (DATETIME_DATATYPES.has(datatypeBase)) return 'datetime';
+  if (WTC_DATATYPES.has(datatypeBase)) return 'wtc';
   if (TIME_DATATYPES.has(datatypeBase)) return 'time';
   if (TUPLE_DATATYPES.has(datatypeBase)) return 'tuple';
   return undefined;
@@ -2327,7 +2406,7 @@ function cloneNode(
       kind: 'scalar',
       scalarType: node.scalarType,
       value: node.value,
-      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes),
+      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes, node.structuralId),
     };
   }
   if (node.kind === 'object') {
@@ -2339,7 +2418,7 @@ function cloneNode(
           inferDatatypeForListItems: false,
         })]),
       ),
-      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes),
+      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes, node.structuralId),
     };
   }
   if (node.kind === 'list') {
@@ -2349,7 +2428,7 @@ function cloneNode(
         inferDatatypeForNewObjectMembers: true,
         inferDatatypeForListItems: false,
       })),
-      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes),
+      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes, node.structuralId),
     };
   }
   if (node.kind === 'tuple') {
@@ -2359,7 +2438,7 @@ function cloneNode(
         inferDatatypeForNewObjectMembers: true,
         inferDatatypeForListItems: false,
       })),
-      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes),
+      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes, node.structuralId),
     };
   }
   if (node.kind === 'element') {
@@ -2373,7 +2452,7 @@ function cloneNode(
         inferDatatypeForNewObjectMembers: true,
         inferDatatypeForListItems: false,
       }) as ListNode,
-      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes),
+      ...nodeMetadata(node.declaredDatatype, node.annotations, node.attributes, node.structuralId),
     };
   }
   return createNodeFromJsValue(materializePlain(node), options);
@@ -2384,7 +2463,7 @@ function datatypeFromName(name: string): TypeAnnotation {
     type: 'TypeAnnotation',
     name,
     genericArgs: [],
-    separators: [],
+    clarifiers: [],
     span: zeroSpan(),
   };
 }
@@ -2397,8 +2476,10 @@ function nodeMetadata(
   declaredDatatype: string | undefined,
   annotations?: ReadonlyMap<string, AttributeEntry>,
   attributes?: readonly Attribute[],
+  structuralId?: string,
 ): NodeMetadata {
   return {
+    ...(structuralId ? { structuralId } : {}),
     ...(declaredDatatype ? { declaredDatatype } : {}),
     ...(annotations && annotations.size > 0 ? { annotations } : {}),
     ...(attributes && attributes.length > 0 ? { attributes } : {}),
@@ -2444,11 +2525,10 @@ function attributesFromAnnotationMap(annotations: ReadonlyMap<string, AttributeE
 
 function formatDatatypeAnnotation(datatype: TypeAnnotation): string {
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-  const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
-  const separators = datatype.separators.length > 0
-    ? datatype.separators.map((separator) => `[${separator}]`).join('')
+  const clarifiers = datatype.clarifiers.length > 0
+    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
     : '';
-  return `${datatype.name}${generics}${radixBase}${separators}`;
+  return `${datatype.name}${generics}${clarifiers}`;
 }
 
 function isTopLevelEvent(event: AssignmentEvent): boolean {

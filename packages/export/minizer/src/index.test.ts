@@ -4,6 +4,13 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { minimize } from './index.js';
 
+test('minimize preserves structural identities in named and anonymous heads', () => {
+  const source = 'age\\A1\\:int32 = 42\nitems = [\\B2\\:string = "green"]';
+  const result = compile(source);
+  assert.equal(result.errors.length, 0);
+  assert.equal(minimize(result.events).text, 'age\\A1\\:int32=42\nitems=[\\B2\\:string="green"]');
+});
+
 test('minimize compacts top-level bindings and preserves nested structure through top-level AES values', () => {
   const source = 'app:object = { name:string = "AEON", port:int32 = 8080, debug = true }\nitems = [1, { done = true }]\ncopy = ~app.name\nptr = ~>app.port';
   const compiled = compile(source);

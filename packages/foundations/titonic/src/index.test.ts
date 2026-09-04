@@ -39,12 +39,28 @@ import {
   titonicSeparator,
   titonicToggle,
   titonicTime,
+  titonicWtc,
   type TitonicList,
   type TitonicElement,
   type TitonicNativeScalar,
   type TitonicObject,
   type TitonicTuple,
 } from './index.js';
+
+test('titonic preserves structural identities through AES and minimized export', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'age\\A1\\:number = 42',
+    'items:list = [\\B2\\:string = "green"]',
+  ].join('\n'));
+  const exported = exportTitonicAes(titonic);
+  assert.equal(exported.find((event) => event.key === 'age')?.structuralId, 'A1');
+  assert.equal(exported.find((event) => event.key === '0')?.structuralId, 'B2');
+  assert.equal(
+    exportTitonicAeon(titonic, { trailingNewline: false }),
+    'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]',
+  );
+});
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import { formatPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 
@@ -289,9 +305,10 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
     'color:hex = #Ff_00_Aa',
     'mask:radix[10] = %1A',
     'payload:embed = &QmFzZTY0IQ==',
-    'parts:set[|] = ^a|b|c',
+    'parts:set["|"] = ^a|b|c',
     'day:date = 2026-04-24',
     'stamp:datetime = 2026-04-24T09:30:00Z',
+    'meeting:wtc = 2026-04-24T09:30:00&Australia/Melbourne',
     'opens:time = 09:30:00Z',
   ].join('\n'));
 
@@ -299,6 +316,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
   assert.equal((titonic.color as TitonicNativeScalar).raw, '#Ff_00_Aa');
   assert.equal((titonic.mask as TitonicNativeScalar).kind, 'radix');
   assert.equal((titonic.parts as TitonicNativeScalar).value, 'a|b|c');
+  assert.equal((titonic.meeting as TitonicNativeScalar).kind, 'wtc');
 
   titonic.enabled = titonicToggle('off');
   titonic.color = titonicHex('#00FF00');
@@ -307,6 +325,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
   titonic.parts = titonicSeparator('x|y');
   titonic.day = titonicDate('2026-04-25');
   titonic.stamp = titonicDateTime('2026-04-25T10:45:00Z');
+  titonic.meeting = titonicWtc('2026-04-25T10:45:00&Australia/Melbourne');
   titonic.opens = titonicTime('10:45:00Z');
 
   assert.throws(() => {
@@ -316,7 +335,7 @@ test('titonic preserves AEON-native scalar wrappers through read, write, and exp
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nenabled:toggle=off\ncolor:hex=#00FF00\nmask:radix[10]=%2B\npayload:embed=&SGVsbG8=\nparts:set[|]=^x|y\nday:date=2026-04-25\nstamp:datetime=2026-04-25T10:45:00Z\nopens:time=10:45:00Z',
+    'aeon:mode="strict"\nenabled:toggle=off\ncolor:hex=#00FF00\nmask:radix[10]=%2B\npayload:embed=&SGVsbG8=\nparts:set["|"]=^x|y\nday:date=2026-04-25\nstamp:datetime=2026-04-25T10:45:00Z\nmeeting:wtc=2026-04-25T10:45:00&Australia/Melbourne\nopens:time=10:45:00Z',
   );
 });
 
