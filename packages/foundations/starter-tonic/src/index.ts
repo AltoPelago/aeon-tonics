@@ -373,11 +373,10 @@ function formatTypeAnnotation(datatype: TypeAnnotation | null): string {
     return '';
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-  const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
-  const separators = datatype.separators.length > 0
-    ? datatype.separators.map((separator) => `[${separator}]`).join('')
+  const clarifiers = datatype.clarifiers.length > 0
+    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
     : '';
-  return `:${datatype.name}${generics}${radixBase}${separators}`;
+  return `:${datatype.name}${generics}${clarifiers}`;
 }
 
 function formatBindingKey(key: string): string {

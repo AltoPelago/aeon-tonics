@@ -82,3 +82,9 @@ test('starter tonic can be created from aes and can set parsed values for advanc
     'title@{lang:string="en","x.y":string="dot"}:string="Hello"\nview:node=<panel("child")>\npointer=~>title\nlang=~title.@.lang\nquoted=~title.@.["x.y"]',
   );
 });
+
+test('starter tonic preserves datatype clarifiers', () => {
+  const doc = createStarterTonicFromAeon('value:radix[16] = %ff');
+
+  assert.equal(exportStarterTonicAeon(doc).text, 'value:radix[16]=%ff');
+});

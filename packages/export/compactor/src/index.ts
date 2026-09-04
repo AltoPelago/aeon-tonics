@@ -128,12 +128,13 @@ function collectComments(
   const semantic = annotations
     .filter((annotation) => annotation.target.kind === 'path')
     .map((annotation) => {
+      const placement = compactPlacement(annotation.placement);
       const comment: PreservedComment = {
         raw: annotation.raw,
         offset: annotation.span.start.offset,
         form: annotation.form,
         targetPath: annotation.target.kind === 'path' ? annotation.target.path : '',
-        ...(annotation.placement ? { placement: annotation.placement } : {}),
+        ...(placement ? { placement } : {}),
       };
       return comment;
     });
@@ -156,6 +157,56 @@ function collectComments(
 
   return [...semantic, ...plain]
     .sort((left, right) => left.offset - right.offset);
+}
+
+function compactPlacement(
+  placement: AnnotationRecord['placement'],
+): PreservedComment['placement'] | undefined {
+  if (!placement) {
+    return undefined;
+  }
+  const after = compactPlacementPart(placement.after);
+  const before = compactPlacementPart(placement.before);
+  if (!after && !before) {
+    return undefined;
+  }
+  return {
+    ...(after ? { after } : {}),
+    ...(before ? { before } : {}),
+  };
+}
+
+function compactPlacementPart(
+  part: NonNullable<AnnotationRecord['placement']>['after'],
+): CompactPlacementPart | undefined {
+  switch (part) {
+    case 'key':
+    case 'attributes':
+    case 'datatype-colon':
+    case 'datatype':
+    case 'equals':
+    case 'value':
+      return part;
+    case 'attribute-marker':
+    case 'attribute-open':
+    case 'attribute-key':
+    case 'attribute-datatype-colon':
+    case 'attribute-datatype':
+    case 'attribute-equals':
+    case 'attribute-value':
+    case 'attribute-separator':
+    case 'attribute-close':
+      return 'attributes';
+    case 'node-open':
+    case 'node-tag':
+    case 'node-datatype-colon':
+    case 'node-datatype':
+    case 'node-children-open':
+    case 'node-child-value':
+      return 'value';
+    default:
+      return undefined;
+  }
 }
 
 function isCommentToken(token: Token): boolean {

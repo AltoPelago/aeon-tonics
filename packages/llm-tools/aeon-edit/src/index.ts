@@ -1276,6 +1276,7 @@ function renderAstValueSnippet(value: AttributeEntry['value']): string {
     case 'RadixLiteral':
     case 'EncodingLiteral':
     case 'SeparatorLiteral':
+    case 'SansaAddressLiteral':
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
