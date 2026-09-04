@@ -100,12 +100,13 @@ function renderBinding(
 }
 
 function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
+  const structuralId = renderStructuralIdentity(value.structuralId);
   const attrs = renderAttributes(value.attributes);
   const datatype = formatDatatype(value.datatype);
   const children = value.children.length > 0
     ? `(${value.children.map((child) => renderValue(child)).join(',')})`
     : '';
-  return `<${formatBindingKey(value.tag)}${attrs}${datatype}${children}>`;
+  return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}${children}>`;
 }
 
 function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
@@ -130,7 +131,7 @@ function renderAttributes(
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
           const nested = renderAttributes(entry.attributes);
-          return `${formatBindingKey(key)}${nested}${formatDatatype(entry.datatype)}=${renderValue(entry.value)}`;
+          return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${nested}${formatDatatype(entry.datatype)}=${renderValue(entry.value)}`;
         })
         .join(',');
       return `@{${entries}}`;
@@ -139,7 +140,7 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry): string {
-  return `${formatBindingKey(key)}${renderAnnotations(entry.annotations)}${renderDatatype(entry.datatype)}=${renderValue(entry.value)}`;
+  return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations)}${renderDatatype(entry.datatype)}=${renderValue(entry.value)}`;
 }
 
 function renderDatatype(datatype: string | undefined): string {

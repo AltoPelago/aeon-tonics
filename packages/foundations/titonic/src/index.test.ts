@@ -52,13 +52,18 @@ test('titonic preserves structural identities through AES and minimized export',
     'aeon:mode = "strict"',
     'age\\A1\\:number = 42',
     'items:list = [\\B2\\:string = "green"]',
+    'node\\N1\\@{meta\\M1\\:string = "value"}:node = <tag\\H1\\>',
   ].join('\n'));
   const exported = exportTitonicAes(titonic);
   assert.equal(exported.find((event) => event.key === 'age')?.structuralId, 'A1');
   assert.equal(exported.find((event) => event.key === '0')?.structuralId, 'B2');
+  const node = exported.find((event) => event.key === 'node');
+  assert.equal(node?.structuralId, 'N1');
+  assert.equal(node?.annotations?.get('meta')?.structuralId, 'M1');
+  assert.equal(node?.value.type === 'NodeLiteral' ? node.value.structuralId : null, 'H1');
   assert.equal(
     exportTitonicAeon(titonic, { trailingNewline: false }),
-    'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]',
+    'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]\nnode\\N1\\@{meta\\M1\\:string="value"}:node=<tag\\H1\\>',
   );
 });
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';

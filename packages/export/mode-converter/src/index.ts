@@ -265,6 +265,7 @@ function convertAnnotationMap(
     const value = convertValue(entry.value, target, preserve, false, inference);
     const datatype = convertDatatype(entry.datatype, value, target, preserve, inference);
     const next: AttributeEntry = {
+      ...(entry.structuralId !== undefined ? { structuralId: entry.structuralId } : {}),
       value,
       ...(datatype === undefined ? {} : { datatype }),
       ...(entry.annotations ? { annotations: convertAnnotationMap(entry.annotations, target, preserve, inference) } : {}),

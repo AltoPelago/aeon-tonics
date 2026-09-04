@@ -178,6 +178,7 @@ interface TupleNode extends BaseNode {
 interface ElementNode extends BaseNode {
   readonly kind: 'element';
   tag: string;
+  headStructuralId?: string;
   headDatatype?: string;
   headAnnotations?: ReadonlyMap<string, AttributeEntry>;
   headAttributes?: readonly Attribute[];
@@ -1726,6 +1727,7 @@ function nodeFromValue(
       return {
         kind: 'element',
         tag: value.tag,
+        ...(value.structuralId ? { headStructuralId: value.structuralId } : {}),
         ...(value.datatype ? { headDatatype: formatDatatypeAnnotation(value.datatype) } : {}),
         ...(headAnnotations
           ? {
@@ -2130,6 +2132,7 @@ function nodeToAstValue(node: TitonicNode): Value {
       return {
         type: 'NodeLiteral',
         tag: node.tag,
+        structuralId: node.headStructuralId ?? null,
         attributes: node.headAttributes ?? attributesFromAnnotationMap(node.headAnnotations),
         datatype: node.headDatatype ? datatypeFromName(node.headDatatype) : null,
         children: node.children.items.map(nodeToAstHeadedValue),
@@ -2445,6 +2448,7 @@ function cloneNode(
     return {
       kind: 'element',
       tag: node.tag,
+      ...(node.headStructuralId ? { headStructuralId: node.headStructuralId } : {}),
       ...(node.headDatatype ? { headDatatype: node.headDatatype } : {}),
       ...(node.headAnnotations ? { headAnnotations: node.headAnnotations } : {}),
       ...(node.headAttributes ? { headAttributes: node.headAttributes } : {}),
@@ -2495,6 +2499,7 @@ function buildAnnotationMap(attributes: readonly Attribute[]): ReadonlyMap<strin
     for (const [key, entry] of attribute.entries) {
       const nested = buildAnnotationMap(entry.attributes);
       const annotation: AttributeEntry = {
+        ...(entry.structuralId ? { structuralId: entry.structuralId } : {}),
         value: entry.value,
         ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
         ...(nested ? { annotations: nested } : {}),
@@ -2514,6 +2519,7 @@ function attributesFromAnnotationMap(annotations: ReadonlyMap<string, AttributeE
     entries: new Map([...annotations.entries()].map(([key, entry]) => [
       key,
       {
+        structuralId: entry.structuralId ?? null,
         value: entry.value,
         datatype: entry.datatype ? datatypeFromName(entry.datatype) : null,
         attributes: attributesFromAnnotationMap(entry.annotations),

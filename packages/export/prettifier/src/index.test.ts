@@ -4,6 +4,16 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { prettify, prettifyAeon } from './index.js';
 
+test('prettify preserves structural identities at every headed occurrence', () => {
+  const source = 'value\\BIND\\@{source\\META\\:string="user"}=<tag\\HEAD\\(\\CHILD\\:string="text")>';
+  const result = prettifyAeon(source);
+
+  assert.equal(
+    result.text,
+    'value\\BIND\\@{source\\META\\:string = "user"} = <tag\\HEAD\\(\\CHILD\\:string = "text")>',
+  );
+});
+
 test('prettify expands minimized aeon without reordering top-level bindings', () => {
   const source = 'z:number=1\naeon:mode="strict"\napp:object={name:string="AEON",config:object={debug:boolean=true},items:list=[1,{done:boolean=true}]}\ncopy=~app.name';
   const result = prettifyAeon(source);

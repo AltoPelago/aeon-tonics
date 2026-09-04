@@ -11,6 +11,15 @@ test('convertAeonMode preserves structural identities', () => {
   assert.equal(result.text, 'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]');
 });
 
+test('convertAeonMode preserves attribute-entry and node-head structural identities', () => {
+  const result = convertAeonMode(
+    'aeon:mode = "transport"\nvalue@{source\\META\\ = "user"} = <tag\\HEAD\\>',
+    { target: 'strict' },
+  );
+  assert.match(result.text, /source\\META\\:string="user"/);
+  assert.match(result.text, /<tag\\HEAD\\:node>/);
+});
+
 test('convertAeonMode strips ordinary datatypes when converting strict to transport', () => {
   const source = [
     'aeon:mode = "strict"',

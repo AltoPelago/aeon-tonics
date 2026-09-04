@@ -60,14 +60,15 @@ function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): 
   const segment = event.path.segments[1] as RootMemberSegment;
   const aeonShortcutHeader = segment.key.startsWith('aeon:');
   const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key);
+  const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
   const datatype = aeonShortcutHeader ? '' : renderEventDatatype(event.datatype);
-  return `${key}${renderAnnotations(event.annotations, context, 0)}${datatype} = ${renderValue(event.value, context, 0)}`;
+  return `${key}${structuralId}${renderAnnotations(event.annotations, context, 0)}${datatype} = ${renderValue(event.value, context, 0)}`;
 }
 
 function renderValue(value: Value, context: RenderContext, depth: number): string {
   switch (value.type) {
     case 'TypedValue':
-      return `${renderAttributes(value.attributes, context, depth)}${formatDatatype(value.datatype)} = ${renderValue(value.value, context, depth)}`;
+      return `${renderStructuralIdentity(value.structuralId)}${renderAttributes(value.attributes, context, depth)}${formatDatatype(value.datatype)} = ${renderValue(value.value, context, depth)}`;
     case 'StringLiteral':
       return formatString(value.value);
     case 'NumberLiteral':
@@ -109,7 +110,7 @@ function renderObject(value: Extract<Value, { type: 'ObjectNode' }>, context: Re
     return '{}';
   }
   const body = value.bindings
-    .map((binding) => `${indent(context, depth + 1)}${renderBinding(binding.key, binding.value, binding.datatype, binding.attributes, context, depth + 1)}`)
+    .map((binding) => `${indent(context, depth + 1)}${renderBinding(binding.key, binding.value, binding.datatype, binding.attributes, binding.structuralId, context, depth + 1)}`)
     .join('\n');
   return `{\n${body}\n${indent(context, depth)}}`;
 }
@@ -136,25 +137,27 @@ function renderBinding(
   value: Value,
   datatype: TypeAnnotation | null,
   attributes: readonly Attribute[],
+  structuralId: string | null,
   context: RenderContext,
   depth: number,
 ): string {
-  return `${formatBindingKey(key)}${renderAttributes(attributes, context, depth)}${formatDatatype(datatype)} = ${renderValue(value, context, depth)}`;
+  return `${formatBindingKey(key)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes, context, depth)}${formatDatatype(datatype)} = ${renderValue(value, context, depth)}`;
 }
 
 function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number): string {
+  const structuralId = renderStructuralIdentity(value.structuralId);
   const attrs = renderAttributes(value.attributes, context, depth);
   const datatype = formatDatatype(value.datatype);
   if (value.children.length === 0) {
-    return `<${formatBindingKey(value.tag)}${attrs}${datatype}>`;
+    return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}>`;
   }
   if (value.children.every(isInlineValue)) {
-    return `<${formatBindingKey(value.tag)}${attrs}${datatype}(${value.children.map((child) => renderValue(child, context, depth)).join(', ')})>`;
+    return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}(${value.children.map((child) => renderValue(child, context, depth)).join(', ')})>`;
   }
   const children = value.children
     .map((child) => `${indent(context, depth + 1)}${renderValue(child, context, depth + 1)}`)
     .join(',\n');
-  return `<${formatBindingKey(value.tag)}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
+  return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
 }
 
 function renderAnnotations(
@@ -185,7 +188,7 @@ function renderAttributes(
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
           const nested = renderAttributes(entry.attributes, context, depth);
-          return `${formatBindingKey(key)}${nested}${formatDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
+          return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${nested}${formatDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
         })
         .join(', ');
       return `@{${entries}}`;
@@ -194,7 +197,11 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry, context: RenderContext, depth: number): string {
-  return `${formatBindingKey(key)}${renderAnnotations(entry.annotations, context, depth)}${renderEventDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
+  return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations, context, depth)}${renderEventDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
+}
+
+function renderStructuralIdentity(structuralId: string | null | undefined): string {
+  return structuralId ? `\\${structuralId}\\` : '';
 }
 
 function renderEventDatatype(datatype: string | undefined): string {
@@ -208,11 +215,10 @@ function formatDatatype(
     return '';
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-  const radixBase = datatype.radixBase != null ? `[${datatype.radixBase}]` : '';
-  const separators = datatype.separators.length > 0
-    ? datatype.separators.map((separator) => `[${separator}]`).join('')
+  const clarifiers = datatype.clarifiers.length > 0
+    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
     : '';
-  return `:${datatype.name}${generics}${radixBase}${separators}`;
+  return `:${datatype.name}${generics}${clarifiers}`;
 }
 
 function formatBindingKey(key: string): string {
