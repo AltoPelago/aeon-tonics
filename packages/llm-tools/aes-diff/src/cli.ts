@@ -5,9 +5,14 @@ import {
   createAesPatch,
   diffAes,
   diffAeon,
+  diffTelex,
+  encodePatchedTelex,
   formatAesDiffJson,
   formatAesDiffText,
+  parseAesTelex,
   summarizeAesDiff,
+  type AesEvent,
+  type AesDiffResult,
   type AesPatch,
   type DiffAeonOptions,
 } from './index.js';
@@ -21,6 +26,7 @@ interface CliOptions extends DiffAeonOptions {
   readonly check: boolean;
   readonly includeUnchanged: boolean;
   readonly fromAes: boolean;
+  readonly fromTelex: boolean;
   readonly pathFilters: readonly string[];
   readonly files: readonly string[];
 }
@@ -64,16 +70,19 @@ async function main(argv: readonly string[]): Promise<number> {
       readFile(beforeFile, 'utf8'),
       readFile(afterFile, 'utf8'),
     ]);
-    const diff = parsed.fromAes
-      ? diffAes(parseAesInput(beforeText, beforeFile), parseAesInput(afterText, afterFile), parsed)
-      : diffAeon(beforeText, afterText, parsed);
+    const diff = parsed.fromTelex
+      ? diffTelex(beforeText, afterText, parsed)
+      : parsed.fromAes
+        ? diffAes(parseAesInput(beforeText, beforeFile), parseAesInput(afterText, afterFile), parsed)
+        : diffAeon(beforeText, afterText, parsed);
+    const interoperableDiff: AesDiffResult<AesEvent> = diff;
     const output = parsed.patch
-      ? `${JSON.stringify(createAesPatch(diff), null, 2)}\n`
+      ? `${JSON.stringify(createAesPatch(interoperableDiff), null, 2)}\n`
       : parsed.summary
-      ? `${JSON.stringify(summarizeAesDiff(diff), null, 2)}\n`
+      ? `${JSON.stringify(summarizeAesDiff(interoperableDiff), null, 2)}\n`
       : parsed.json
-        ? formatAesDiffJson(diff).text
-        : formatAesDiffText(diff, { includeUnchanged: parsed.includeUnchanged }).text;
+        ? formatAesDiffJson(interoperableDiff).text
+        : formatAesDiffText(interoperableDiff, { includeUnchanged: parsed.includeUnchanged }).text;
 
     process.stdout.write(output);
 
@@ -99,10 +108,10 @@ async function applyMain(argv: readonly string[]): Promise<number> {
     writeError(parsed);
     return parsed.code === 'HELP' ? 0 : 2;
   }
-  if (!parsed.fromAes) {
+  if (!parsed.fromAes && !parsed.fromTelex) {
     writeError({
       code: 'USAGE',
-      message: `Patch application currently requires --from-aes\n\n${usage()}`,
+      message: `Patch application requires --from-aes or --from-telex\n\n${usage()}`,
     });
     return 2;
   }
@@ -121,6 +130,21 @@ async function applyMain(argv: readonly string[]): Promise<number> {
       readFile(baseFile, 'utf8'),
       readFile(patchFile, 'utf8'),
     ]);
+    if (parsed.fromTelex) {
+      const base = parseAesTelex(baseText);
+      const result = applyAesPatch(
+        base.records,
+        parsePatchInput(patchText, patchFile),
+        parsed,
+      );
+      if (result.ok) {
+        process.stdout.write(encodePatchedTelex(result.events, base));
+      } else {
+        process.stdout.write(`${JSON.stringify({ ok: false, diagnostics: result.diagnostics }, null, 2)}\n`);
+      }
+      return result.ok ? 0 : 2;
+    }
+
     const result = applyAesPatch(
       parseAesInput(baseText, baseFile),
       parsePatchInput(patchText, patchFile),
@@ -149,6 +173,7 @@ function parseArgs(argv: readonly string[]): CliOptions | CliError {
   let examples = false;
   let includeUnchanged = false;
   let fromAes = false;
+  let fromTelex = false;
   const pathFilters: string[] = [];
   let includeHeaders = true;
   let includeMetadata = true;
@@ -180,6 +205,9 @@ function parseArgs(argv: readonly string[]): CliOptions | CliError {
         break;
       case '--from-aes':
         fromAes = true;
+        break;
+      case '--from-telex':
+        fromTelex = true;
         break;
       case '--include-unchanged':
         includeUnchanged = true;
@@ -230,6 +258,12 @@ function parseArgs(argv: readonly string[]): CliOptions | CliError {
       message: usage(),
     };
   }
+  if (fromAes && fromTelex) {
+    return {
+      code: 'USAGE',
+      message: '--from-aes and --from-telex are mutually exclusive',
+    };
+  }
 
   return {
     json,
@@ -239,6 +273,7 @@ function parseArgs(argv: readonly string[]): CliOptions | CliError {
     check,
     includeUnchanged,
     fromAes,
+    fromTelex,
     pathFilters,
     files,
     includeHeaders,
@@ -259,7 +294,7 @@ function parseAesInput(text: string, file: string): readonly AssignmentEvent[] {
   throw new Error(`Expected ${file} to contain an AES event array or an object with an events array`);
 }
 
-function parsePatchInput(text: string, file: string): AesPatch {
+function parsePatchInput<TEvent extends AesEvent>(text: string, file: string): AesPatch<TEvent> {
   const parsed = JSON.parse(text) as unknown;
   if (
     parsed &&
@@ -267,7 +302,7 @@ function parsePatchInput(text: string, file: string): AesPatch {
     (parsed as { readonly format?: unknown }).format === 'aes.patch' &&
     Array.isArray((parsed as { readonly operations?: unknown }).operations)
   ) {
-    return parsed as AesPatch;
+    return parsed as AesPatch<TEvent>;
   }
   throw new Error(`Expected ${file} to contain an aes.patch object`);
 }
@@ -289,6 +324,7 @@ function usage(): string {
   return [
     'Usage: aes-diff [options] <before.aeon> <after.aeon>',
     '       aes-diff apply --from-aes [options] <base.aes.json> <patch.json>',
+    '       aes-diff apply --from-telex [options] <base.telex.aes> <patch.json>',
     '',
     'Options:',
     '  --ai                 Print agent workflow guidance',
@@ -298,6 +334,7 @@ function usage(): string {
     '  --patch              Emit reviewable aes.patch JSON; does not apply',
     '  --check              Exit 1 when semantic changes are present',
     '  --from-aes           Read inputs as AES JSON arrays or { events } envelopes',
+    '  --from-telex         Read complete portable AES inputs as Telex',
     '  --path <path>        Only compare a canonical path subtree; repeatable',
     '  --include-unchanged  Include unchanged count in text output',
     '  --no-headers         Ignore aeon:* header bindings',
@@ -330,6 +367,7 @@ function aiWorkflow(): string {
     '  5. Build an AES-native patch when needed:',
     '     aes-diff --patch before.aeon after.aeon > patch.json',
     '     aes-diff apply --from-aes base.aes.json patch.json',
+    '     aes-diff --from-telex before.telex.aes after.telex.aes',
     '',
     'Exit codes:',
     '  0: no semantic changes, or command succeeded',

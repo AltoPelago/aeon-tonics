@@ -27,6 +27,9 @@ Public API:
 
 - `diffAes(beforeEvents, afterEvents, options?)`
 - `diffAeon(beforeSource, afterSource, options?)`
+- `diffTelex(beforeTelex, afterTelex, options?)`
+- `parseAesTelex(telex, options?)`
+- `encodePatchedTelex(events, source)`
 - `formatAesDiffText(diff, options?)`
 - `formatAesDiffJson(diff)`
 - `summarizeAesDiff(diff, options?)`
@@ -48,6 +51,8 @@ aes-diff --summary before.aeon after.aeon
 aes-diff --check before.aeon after.aeon
 aes-diff --patch before.aeon after.aeon
 aes-diff --from-aes before.aes.json after.aes.json
+aes-diff --from-telex before.telex.aes after.telex.aes
 aes-diff --path $.app before.aeon after.aeon
 aes-diff apply --from-aes base.aes.json patch.json
+aes-diff apply --from-telex base.telex.aes patch.json
 ```

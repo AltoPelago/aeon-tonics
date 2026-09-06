@@ -30,6 +30,7 @@ import { compactAeon, type CompactCommentMode } from '../../../export/compactor/
 import { convertAeonMode, type AeonModeConversionTarget } from '../../../export/mode-converter/dist/index.js';
 import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
 import type { AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { exportTelex } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 
 export interface AeonEditOptions {
   readonly maxAttributeDepth?: number;
@@ -44,7 +45,7 @@ export interface AeonEditResult {
   readonly changed?: boolean;
   readonly value?: unknown;
   readonly output?: {
-    readonly format: 'aeon' | 'aes';
+    readonly format: 'aeon' | 'aes' | 'telex';
     readonly text?: string;
     readonly events?: unknown;
   };
@@ -266,6 +267,18 @@ export function exportAeonEditAes(source: string): AeonEditResult {
     output: {
       format: 'aes',
       events: exportTitonicAes(document),
+    },
+  };
+}
+
+export function exportAeonEditTelex(source: string, includeHeaders = false): AeonEditResult {
+  const document = loadAeonDocument(source);
+  return {
+    ok: true,
+    command: 'export-telex',
+    output: {
+      format: 'telex',
+      text: exportTelex(exportTitonicAes(document), { includeHeaders }),
     },
   };
 }

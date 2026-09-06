@@ -9,6 +9,7 @@ import {
   deleteAeonEditNodeAttributeAnnotation,
   deleteAeonEditValue,
   exportAeonEditAes,
+  exportAeonEditTelex,
   getAeonEditAttribute,
   getAeonEditAttributeAnnotation,
   getAeonEditNodeAttribute,
@@ -281,6 +282,18 @@ test('exports AES events', () => {
   assert.equal(result.ok, true);
   assert.equal(result.output?.format, 'aes');
   assert.equal(events.length > 0, true);
+});
+
+test('exports complete portable Telex with headers opt-in', () => {
+  const body = exportAeonEditTelex(source);
+  const document = exportAeonEditTelex(source, true);
+
+  assert.equal(body.output?.format, 'telex');
+  assert.match(body.output?.text ?? '', /^telex\.aes=0$/m);
+  assert.match(body.output?.text ?? '', /path=\$\.app/m);
+  assert.doesNotMatch(body.output?.text ?? '', /^header=/m);
+  assert.match(document.output?.text ?? '', /^projection=aeon\.document\.v0$/m);
+  assert.match(document.output?.text ?? '', /^header=\$\.\["aeon:mode"\]$/m);
 });
 
 test('inspects a path with value and metadata summary', () => {

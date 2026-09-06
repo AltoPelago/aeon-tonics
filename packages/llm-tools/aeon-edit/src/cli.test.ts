@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import { compile, parseTelex, validateTelex } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import {
   generateLedgerKeyPair,
   parseLedgerJsonl,
@@ -855,6 +855,35 @@ test('CLI exports AES JSON', async () => {
   const parsed = JSON.parse(result.stdout);
 
   assert.equal(Array.isArray(parsed.events), true);
+});
+
+test('CLI exports Telex and keeps document headers opt-in', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-edit-telex-'));
+  const file = join(dir, 'doc.aeon');
+  const output = join(dir, 'doc.telex.aes');
+  await writeFile(file, [
+    'aeon:mode = "strict"',
+    'view\\binding-id\\:node = <panel\\head-id\\("hello")>',
+  ].join('\n'), 'utf8');
+
+  const body = await execFileAsync(process.execPath, [cliPath, 'export-telex', file]);
+  const bodyParsed = parseTelex(body.stdout);
+  assert.equal(validateTelex(bodyParsed).valid, true);
+  assert.equal(bodyParsed.records.some((record) => record.path === '$.view[0]' && record.identity === 'head-id'), true);
+  assert.equal(bodyParsed.records.some((record) => typeof record.header === 'string'), false);
+
+  const withHeaders = await execFileAsync(process.execPath, [
+    cliPath,
+    'export-telex',
+    file,
+    '--include-headers',
+    '--out',
+    output,
+  ]);
+  assert.equal(withHeaders.stdout, `wrote ${output}\n`);
+  const documentParsed = parseTelex(await readFile(output, 'utf8'));
+  assert.equal(documentParsed.projection, 'aeon.document.v0');
+  assert.equal(documentParsed.records.some((record) => record.header === '$.["aeon:mode"]'), true);
 });
 
 test('CLI inspects and lists paths', async () => {

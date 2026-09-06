@@ -20,6 +20,12 @@ That runtime form might be:
 The important point is that a tonic does not replace AEON core.
 It sits after core, works with AES, and adds meaning or behavior for a specific use case.
 
+Within one TypeScript process, a tonic may use core's native
+`AssignmentEvent[]` representation. Across a process, implementation, or
+persistence boundary, use portable AES encoded as Telex. JSON serialization of
+`AssignmentEvent[]` is a compatibility representation, not the portable AES
+contract.
+
 ## The Usual Pipeline
 
 The broad AEON flow looks like this:
@@ -170,5 +176,9 @@ If you build one, keep these boundaries clear:
 - let `@aeos/core` own schema validation
 - let your tonic own runtime meaning and ergonomics
 - keep AES import/export explicit so your tonic stays interoperable
+- keep structural identity in event metadata rather than adding it to path identity
+- translate node paths explicitly: a node binding is `$.a`, its head is
+  `$.a[0]`, its first child is `$.a[0][0]`, and node-head attributes live below
+  `$.a[0].@`
 
 That keeps the ecosystem composable instead of collapsing all responsibilities into one package.

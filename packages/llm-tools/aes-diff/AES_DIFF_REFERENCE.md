@@ -183,6 +183,20 @@ Compare AES JSON:
 aes-diff --from-aes before.aes.json after.aes.json
 ```
 
+This is the legacy TypeScript `AssignmentEvent` JSON compatibility route.
+
+Compare complete portable AES streams:
+
+```sh
+aes-diff --from-telex before.telex.aes after.telex.aes
+```
+
+Telex is parsed and validated before comparison. The default profile is
+complete when the stream does not declare one. Structural identities remain
+event fields and do not participate in path identity. Datatype, generics, and
+clarifiers are compared as one datatype descriptor while remaining separately
+available in portable records.
+
 Apply an AES patch to AES JSON:
 
 ```sh
@@ -190,6 +204,12 @@ aes-diff apply --from-aes base.aes.json patch.json
 ```
 
 The apply command prints `{ "events": [...] }` on success and structured diagnostics on failure.
+
+Apply a patch containing portable records and emit Telex:
+
+```sh
+aes-diff apply --from-telex base.telex.aes patch.json
+```
 
 ## Safety Boundary
 

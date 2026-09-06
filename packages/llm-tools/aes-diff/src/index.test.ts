@@ -1,15 +1,56 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import { compile, exportTelex } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import {
   applyAesPatch,
   createAesPatch,
   diffAeon,
   diffAes,
+  diffTelex,
   formatAesDiffJson,
   formatAesDiffText,
   summarizeAesDiff,
 } from './index.js';
+
+test('diffTelex compares complete portable streams and keeps identity outside path identity', () => {
+  const before = compile('a\\old-id\\:string = "one"\nnode:node = <tag\\head-id\\("child")>');
+  const after = compile('a\\new-id\\:string = "two"\nnode:node = <tag\\head-id\\("child")>');
+  assert.equal(before.errors.length, 0);
+  assert.equal(after.errors.length, 0);
+
+  const diff = diffTelex(exportTelex(before.events), exportTelex(after.events));
+  const binding = diff.changes.find((change) => change.path === '$.a');
+
+  assert.equal(binding?.kind, 'changed');
+  assert.deepEqual(binding?.kind === 'changed' ? binding.delta.parts : [], ['identity', 'value']);
+  assert.equal(diff.changes.some((change) => change.path === '$.node[0]'), false);
+  assert.equal(diff.summary.unchanged, 3);
+});
+
+test('portable datatype components are classified as datatype changes', () => {
+  const diff = diffAes(
+    [{ path: '$.a', kind: 'SeparatorLiteral', datatype: 'csv', clarifiers: [{ kind: 'StringLiteral', value: '.' }], value: 'one.two' }],
+    [{ path: '$.a', kind: 'SeparatorLiteral', datatype: 'csv', clarifiers: [{ kind: 'StringLiteral', value: '|' }], value: 'one.two' }],
+  );
+
+  assert.deepEqual(diff.changes[0]?.kind === 'changed' ? diff.changes[0].delta.parts : [], ['datatype']);
+});
+
+test('diffTelex rejects incomplete streams under the default complete profile', () => {
+  const incomplete = [
+    'telex.aes=0',
+    '',
+    'path=$.a.b',
+    'kind=StringLiteral',
+    'value=value',
+    '',
+  ].join('\n');
+
+  assert.throws(
+    () => diffTelex(incomplete, incomplete),
+    /Telex validation failed/u,
+  );
+});
 
 test('diffAeon reports added, removed, changed, and unchanged paths', () => {
   const diff = diffAeon(

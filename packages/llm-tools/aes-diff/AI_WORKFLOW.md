@@ -43,6 +43,14 @@ aes-diff --patch before.aeon after.aeon > patch.json
 aes-diff apply --from-aes base.aes.json patch.json
 ```
 
+For portable cross-component streams, use Telex explicitly:
+
+```sh
+aes-diff --from-telex before.telex.aes after.telex.aes
+aes-diff --from-telex --patch before.telex.aes after.telex.aes > patch.json
+aes-diff apply --from-telex before.telex.aes patch.json
+```
+
 ## Exit Codes
 
 - `0`: no semantic changes, or command succeeded

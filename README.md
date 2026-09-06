@@ -95,6 +95,9 @@ If you are migrating from the old Markdown-oriented path, start here:
 
 Workspace guide:
 
+- [`docs/aes-portability-audit.md`](./docs/aes-portability-audit.md)
+  Defines the portable Telex boundaries, legacy JSON compatibility routes, and
+  path/identity translation contract used by this workspace.
 - [`BUILDING_TONICS.md`](./BUILDING_TONICS.md)
   Explains when to stay at AES, when to use Titonic, and when to build a custom tonic.
 - [`AI_AGENT_WORKFLOWS.md`](./AI_AGENT_WORKFLOWS.md)

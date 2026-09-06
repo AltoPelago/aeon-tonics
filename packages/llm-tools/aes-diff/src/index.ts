@@ -1,14 +1,24 @@
 import {
   compile,
+  encodeTelex,
   formatPath,
+  parseTelex,
+  validateTelex,
+  validateTelexRecords,
   type AssignmentEvent,
   type CompileOptions,
+  type ParsedTelex,
+  type TelexRecord,
+  type TelexValidationOptions,
 } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+
+export type AesEvent = AssignmentEvent | TelexRecord;
 
 export type AesDiffChangeKind = 'added' | 'removed' | 'changed';
 
 export type AesDiffDeltaPart =
   | 'datatype'
+  | 'identity'
   | 'value'
   | 'metadata'
   | 'reference'
@@ -33,6 +43,15 @@ export interface DiffAeonOptions extends DiffAesOptions {
   readonly compileOptions?: CompileOptions;
 }
 
+export interface DiffTelexOptions extends DiffAesOptions {
+  readonly validationOptions?: TelexValidationOptions;
+}
+
+export interface ParsedAesTelex {
+  readonly parsed: ParsedTelex;
+  readonly records: readonly TelexRecord[];
+}
+
 export interface AesDiffSummary {
   readonly added: number;
   readonly removed: number;
@@ -54,29 +73,29 @@ export interface EventDelta {
   readonly parts: readonly AesDiffDeltaPart[];
 }
 
-export type AesChange =
+export type AesChange<TEvent extends AesEvent = AssignmentEvent> =
   | {
       readonly kind: 'added';
       readonly path: string;
-      readonly after: AssignmentEvent;
+      readonly after: TEvent;
     }
   | {
       readonly kind: 'removed';
       readonly path: string;
-      readonly before: AssignmentEvent;
+      readonly before: TEvent;
     }
   | {
       readonly kind: 'changed';
       readonly path: string;
-      readonly before: AssignmentEvent;
-      readonly after: AssignmentEvent;
+      readonly before: TEvent;
+      readonly after: TEvent;
       readonly delta: EventDelta;
     };
 
-export interface AesDiffResult {
+export interface AesDiffResult<TEvent extends AesEvent = AssignmentEvent> {
   readonly format: 'aes.diff';
   readonly version: 1;
-  readonly changes: readonly AesChange[];
+  readonly changes: readonly AesChange<TEvent>[];
   readonly summary: AesDiffSummary;
   readonly diagnostics: readonly AesDiffDiagnostic[];
 }
@@ -106,58 +125,60 @@ export interface AesDiffHighRiskChange {
   readonly reasons: readonly AesDiffDeltaPart[];
 }
 
-export type AesPatchOperation =
+export type AesPatchOperation<TEvent extends AesEvent = AssignmentEvent> =
   | {
       readonly op: 'add';
       readonly path: string;
-      readonly after: AssignmentEvent;
+      readonly after: TEvent;
     }
   | {
       readonly op: 'remove';
       readonly path: string;
-      readonly before: AssignmentEvent;
+      readonly before: TEvent;
     }
   | {
       readonly op: 'replace';
       readonly path: string;
-      readonly before: AssignmentEvent;
-      readonly after: AssignmentEvent;
+      readonly before: TEvent;
+      readonly after: TEvent;
       readonly delta: EventDelta;
     };
 
-export interface AesPatch {
+export interface AesPatch<TEvent extends AesEvent = AssignmentEvent> {
   readonly format: 'aes.patch';
   readonly version: 1;
   readonly applicable: boolean;
-  readonly operations: readonly AesPatchOperation[];
+  readonly operations: readonly AesPatchOperation<TEvent>[];
   readonly diagnostics: readonly AesDiffDiagnostic[];
 }
 
 export interface ApplyAesPatchOptions extends DiffAesOptions {}
 
-export interface ApplyAesPatchResult {
+export interface ApplyAesPatchResult<TEvent extends AesEvent = AssignmentEvent> {
   readonly ok: boolean;
-  readonly events: readonly AssignmentEvent[];
+  readonly events: readonly TEvent[];
   readonly diagnostics: readonly AesDiffDiagnostic[];
 }
 
-interface NormalizedEvent {
+interface NormalizedEvent<TEvent extends AesEvent> {
   readonly path: string;
-  readonly event: AssignmentEvent;
+  readonly event: TEvent;
   readonly semantic: NormalizedSemanticEvent;
 }
 
 interface NormalizedSemanticEvent {
   readonly path: string;
   readonly key: string;
-  readonly datatype: string | null;
+  readonly header: boolean;
+  readonly identity: string | null;
+  readonly datatype: unknown;
   readonly value: unknown;
   readonly annotations?: unknown;
   readonly span?: unknown;
 }
 
-interface IndexedEvents {
-  readonly events: ReadonlyMap<string, NormalizedEvent>;
+interface IndexedEvents<TEvent extends AesEvent> {
+  readonly events: ReadonlyMap<string, NormalizedEvent<TEvent>>;
   readonly diagnostics: readonly AesDiffDiagnostic[];
 }
 
@@ -189,17 +210,67 @@ export function diffAeon(
   };
 }
 
-export function diffAes(
-  beforeEvents: readonly AssignmentEvent[],
-  afterEvents: readonly AssignmentEvent[],
+export function parseAesTelex(
+  input: string,
+  options: TelexValidationOptions = {},
+): ParsedAesTelex {
+  const parsed = parseTelex(input, options);
+  const validation = validateTelex(parsed, {
+    ...options,
+    profile: parsed.profile,
+    projection: parsed.projection,
+  });
+  if (!validation.valid) {
+    const details = validation.diagnostics
+      .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+      .join('\n');
+    throw new Error(`Telex validation failed with ${validation.diagnostics.length} error(s):\n${details}`);
+  }
+  return { parsed, records: parsed.records };
+}
+
+export function diffTelex(
+  beforeSource: string,
+  afterSource: string,
+  options: DiffTelexOptions = {},
+): AesDiffResult<TelexRecord> {
+  const before = parseAesTelex(beforeSource, options.validationOptions);
+  const after = parseAesTelex(afterSource, options.validationOptions);
+  return diffAes(before.records, after.records, options);
+}
+
+export function encodePatchedTelex(
+  events: readonly TelexRecord[],
+  source: ParsedAesTelex,
+): string {
+  const options = {
+    profile: source.parsed.profile,
+    projection: source.parsed.projection,
+  };
+  const validation = validateTelexRecords(events, options);
+  if (!validation.valid) {
+    const details = validation.diagnostics
+      .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+      .join('\n');
+    throw new Error(`Patched Telex validation failed with ${validation.diagnostics.length} error(s):\n${details}`);
+  }
+  return encodeTelex(events, {
+    profile: source.parsed.profile,
+    ...(source.parsed.projection === null ? {} : { projection: source.parsed.projection }),
+  });
+}
+
+export function diffAes<TEvent extends AesEvent>(
+  beforeEvents: readonly TEvent[],
+  afterEvents: readonly TEvent[],
   options: DiffAesOptions = {},
-): AesDiffResult {
+): AesDiffResult<TEvent> {
   const resolvedOptions = { ...DEFAULT_OPTIONS, ...options };
   const before = indexEvents('before', beforeEvents, resolvedOptions);
   const after = indexEvents('after', afterEvents, resolvedOptions);
   const diagnostics = [...before.diagnostics, ...after.diagnostics];
   const paths = [...new Set([...before.events.keys(), ...after.events.keys()])].sort();
-  const changes: AesChange[] = [];
+  const changes: AesChange<TEvent>[] = [];
   let unchanged = 0;
 
   for (const path of paths) {
@@ -244,14 +315,14 @@ export function diffAes(
   };
 }
 
-export function formatAesDiffJson(diff: AesDiffResult): FormatAesDiffResult {
+export function formatAesDiffJson<TEvent extends AesEvent>(diff: AesDiffResult<TEvent>): FormatAesDiffResult {
   return {
     text: `${JSON.stringify(toJsonSafe(diff), null, 2)}\n`,
   };
 }
 
-export function formatAesDiffText(
-  diff: AesDiffResult,
+export function formatAesDiffText<TEvent extends AesEvent>(
+  diff: AesDiffResult<TEvent>,
   options: FormatAesDiffTextOptions = {},
 ): FormatAesDiffResult {
   const lines: string[] = [
@@ -289,8 +360,8 @@ export function formatAesDiffText(
   };
 }
 
-export function summarizeAesDiff(
-  diff: AesDiffResult,
+export function summarizeAesDiff<TEvent extends AesEvent>(
+  diff: AesDiffResult<TEvent>,
   options: SummarizeAesDiffOptions = {},
 ): AesDiffPlanningSummary {
   const maxPaths = options.maxPaths ?? 20;
@@ -303,6 +374,7 @@ export function summarizeAesDiff(
     }
     const reasons = change.delta.parts.filter((part) => (
       part === 'datatype' ||
+      part === 'identity' ||
       part === 'reference' ||
       part === 'header'
     ));
@@ -318,12 +390,12 @@ export function summarizeAesDiff(
   };
 }
 
-export function createAesPatch(diff: AesDiffResult): AesPatch {
+export function createAesPatch<TEvent extends AesEvent>(diff: AesDiffResult<TEvent>): AesPatch<TEvent> {
   return {
     format: 'aes.patch',
     version: 1,
     applicable: diff.diagnostics.length === 0,
-    operations: diff.changes.map((change): AesPatchOperation => {
+    operations: diff.changes.map((change): AesPatchOperation<TEvent> => {
       switch (change.kind) {
         case 'added':
           return {
@@ -355,11 +427,11 @@ export function createAesPatch(diff: AesDiffResult): AesPatch {
   };
 }
 
-export function applyAesPatch(
-  baseEvents: readonly AssignmentEvent[],
-  patch: AesPatch,
+export function applyAesPatch<TEvent extends AesEvent>(
+  baseEvents: readonly TEvent[],
+  patch: AesPatch<TEvent>,
   options: ApplyAesPatchOptions = {},
-): ApplyAesPatchResult {
+): ApplyAesPatchResult<TEvent> {
   const resolvedOptions = { ...DEFAULT_OPTIONS, ...options };
   if (!patch.applicable || patch.diagnostics.length > 0) {
     return {
@@ -447,7 +519,7 @@ function compileDiagnostics(side: 'before' | 'after', errors: readonly Error[]):
   }));
 }
 
-function buildHeadline(diff: AesDiffResult): string {
+function buildHeadline<TEvent extends AesEvent>(diff: AesDiffResult<TEvent>): string {
   const total = diff.summary.added + diff.summary.removed + diff.summary.changed;
   if (total === 0 && diff.diagnostics.length === 0) {
     return 'No semantic AES changes.';
@@ -504,26 +576,26 @@ function findQuotedSegmentEnd(value: string): number {
   return -1;
 }
 
-function eventsMatch(
-  left: AssignmentEvent,
-  right: AssignmentEvent,
+function eventsMatch<TEvent extends AesEvent>(
+  left: TEvent,
+  right: TEvent,
   path: string,
   options: Required<DiffAesOptions>,
 ): boolean {
   return stableStringify(normalizeEvent(path, left, options)) === stableStringify(normalizeEvent(path, right, options));
 }
 
-function indexEvents(
+function indexEvents<TEvent extends AesEvent>(
   side: 'before' | 'after',
-  events: readonly AssignmentEvent[],
+  events: readonly TEvent[],
   options: Required<DiffAesOptions>,
-): IndexedEvents {
-  const indexed = new Map<string, NormalizedEvent>();
+): IndexedEvents<TEvent> {
+  const indexed = new Map<string, NormalizedEvent<TEvent>>();
   const diagnostics: AesDiffDiagnostic[] = [];
 
   for (const event of events) {
-    const path = formatPath(event.path);
-    if (!options.includeHeaders && isHeaderPath(path)) {
+    const path = aesEventPath(event);
+    if (!options.includeHeaders && isHeaderEvent(event, path)) {
       continue;
     }
     if (!matchesPathFilters(path, options.pathFilters)) {
@@ -556,12 +628,60 @@ function indexEvents(
 
 function normalizeEvent(
   path: string,
-  event: AssignmentEvent,
+  event: AesEvent,
   options: Required<DiffAesOptions>,
 ): NormalizedSemanticEvent {
+  if (isPortableRecord(event)) {
+    const knownFields = new Set([
+      'header',
+      'path',
+      'kind',
+      'datatype',
+      'generics',
+      'clarifiers',
+      'identity',
+      'value',
+      'origin',
+      'span',
+    ]);
+    const extensions = Object.fromEntries(
+      Object.entries(event)
+        .filter(([key]) => !knownFields.has(key))
+        .sort(([left], [right]) => left.localeCompare(right)),
+    );
+    const normalized: NormalizedSemanticEvent = {
+      path,
+      key: path,
+      header: typeof event.header === 'string',
+      identity: event.identity ?? null,
+      datatype: {
+        datatype: event.datatype ?? null,
+        generics: normalizeUnknown(event.generics ?? [], options),
+        clarifiers: normalizeUnknown(event.clarifiers ?? [], options),
+      },
+      value: {
+        kind: event.kind ?? null,
+        value: event.value ?? null,
+      },
+    };
+
+    if (options.includeMetadata) {
+      (normalized as { annotations?: unknown }).annotations = {
+        origin: event.origin ?? null,
+        extensions: normalizeUnknown(extensions, options),
+      };
+    }
+    if (options.includeSourceSpans) {
+      (normalized as { span?: unknown }).span = event.span ?? null;
+    }
+    return normalized;
+  }
+
   const normalized: NormalizedSemanticEvent = {
     path,
     key: event.key,
+    header: isHeaderPath(path),
+    identity: event.structuralId ?? null,
     datatype: event.datatype ?? null,
     value: normalizeUnknown(event.value, options),
   };
@@ -580,15 +700,19 @@ function normalizeEvent(
 function compareEvents(before: NormalizedSemanticEvent, after: NormalizedSemanticEvent): EventDelta {
   const parts: AesDiffDeltaPart[] = [];
 
-  if (isHeaderPath(before.path) || isHeaderPath(after.path)) {
+  if (before.header || after.header) {
     if (stableStringify(before) !== stableStringify(after)) {
       parts.push('header');
     }
     return { parts };
   }
 
-  if (before.datatype !== after.datatype) {
+  if (stableStringify(before.datatype) !== stableStringify(after.datatype)) {
     parts.push('datatype');
+  }
+
+  if (before.identity !== after.identity) {
+    parts.push('identity');
   }
 
   const beforeValue = stableStringify(before.value);
@@ -608,7 +732,7 @@ function compareEvents(before: NormalizedSemanticEvent, after: NormalizedSemanti
   return { parts };
 }
 
-function buildSummary(changes: readonly AesChange[], unchanged: number): AesDiffSummary {
+function buildSummary<TEvent extends AesEvent>(changes: readonly AesChange<TEvent>[], unchanged: number): AesDiffSummary {
   let added = 0;
   let removed = 0;
   let changed = 0;
@@ -692,6 +816,25 @@ function normalizeUnknown(value: unknown, options: Required<DiffAesOptions>): un
   return value;
 }
 
+function isPortableRecord(event: AesEvent): event is TelexRecord {
+  return typeof event.path === 'string' || typeof (event as TelexRecord).header === 'string';
+}
+
+function aesEventPath(event: AesEvent): string {
+  if (isPortableRecord(event)) {
+    const path = event.header ?? event.path;
+    if (typeof path !== 'string') {
+      throw new Error('Portable AES record must contain path or header');
+    }
+    return path;
+  }
+  return formatPath(event.path);
+}
+
+function isHeaderEvent(event: AesEvent, path: string): boolean {
+  return isPortableRecord(event) ? typeof event.header === 'string' : isHeaderPath(path);
+}
+
 function isHeaderPath(path: string): boolean {
   return path.startsWith('$.["aeon:');
 }
@@ -728,8 +871,13 @@ function collectReferences(value: unknown, markers: string[]): void {
   }
 
   const record = value as Record<string, unknown>;
-  if (record.type === 'CloneReference' || record.type === 'PointerReference') {
-    markers.push(String(record.type));
+  if (
+    record.type === 'CloneReference' ||
+    record.type === 'PointerReference' ||
+    record.kind === 'CloneReference' ||
+    record.kind === 'PointerReference'
+  ) {
+    markers.push(String(record.type ?? record.kind));
   }
 
   for (const entry of Object.values(record)) {

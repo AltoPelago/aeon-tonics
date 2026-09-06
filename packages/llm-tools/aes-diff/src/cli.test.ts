@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import { createAesPatch, diffAes } from './index.js';
+import { compile, exportTelex } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import { createAesPatch, diffAes, diffTelex } from './index.js';
 
 const execFileAsync = promisify(execFile);
 const cliPath = join(dirname(fileURLToPath(import.meta.url)), 'cli.js');
@@ -88,6 +88,46 @@ test('CLI can compare AES JSON inputs', async () => {
       ['added', '$.b'],
     ],
   );
+});
+
+test('CLI can compare complete Telex inputs', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aes-diff-telex-'));
+  const beforeFile = join(dir, 'before.telex.aes');
+  const afterFile = join(dir, 'after.telex.aes');
+  const before = compile('a\\stable\\:string = "one"\nnode:node = <tag\\head\\("child")>');
+  const after = compile('a\\stable\\:string = "two"\nnode:node = <tag\\head\\("child")>\nb:boolean = true');
+  assert.equal(before.errors.length, 0);
+  assert.equal(after.errors.length, 0);
+  await writeFile(beforeFile, exportTelex(before.events), 'utf8');
+  await writeFile(afterFile, exportTelex(after.events), 'utf8');
+
+  const result = await execFileAsync(process.execPath, [cliPath, '--from-telex', '--json', beforeFile, afterFile]);
+  const parsed = JSON.parse(result.stdout);
+
+  assert.equal(parsed.summary.added, 1);
+  assert.equal(parsed.summary.changed, 1);
+  assert.equal(parsed.summary.unchanged, 3);
+  assert.deepEqual(parsed.changes.map((change: { readonly path: string }) => change.path), ['$.a', '$.b']);
+});
+
+test('CLI applies portable patches and emits Telex', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aes-diff-telex-'));
+  const baseFile = join(dir, 'base.telex.aes');
+  const afterFile = join(dir, 'after.telex.aes');
+  const patchFile = join(dir, 'patch.json');
+  const before = compile('a:string = "one"\nold:boolean = true');
+  const after = compile('a:string = "two"\nnew:boolean = true');
+  const beforeTelex = exportTelex(before.events);
+  const afterTelex = exportTelex(after.events);
+  await writeFile(baseFile, beforeTelex, 'utf8');
+  await writeFile(afterFile, afterTelex, 'utf8');
+
+  const patchResult = await execFileAsync(process.execPath, [cliPath, '--from-telex', '--patch', baseFile, afterFile]);
+  await writeFile(patchFile, patchResult.stdout, 'utf8');
+  const applied = await execFileAsync(process.execPath, [cliPath, 'apply', '--from-telex', baseFile, patchFile]);
+
+  assert.match(applied.stdout, /^telex\.aes=0$/m);
+  assert.equal(diffTelex(applied.stdout, afterTelex).changes.length, 0);
 });
 
 test('CLI can scope diffs to a path subtree', async () => {

@@ -59,7 +59,13 @@ aeon-edit node-attr-annotation get file.aeon $.view id source
 aeon-edit node-attr-annotation set file.aeon $.view id source '"ui"'
 aeon-edit node-attr-annotation delete file.aeon $.view id source
 aeon-edit export-aes file.aeon
+aeon-edit export-telex file.aeon
+aeon-edit export-telex file.aeon --include-headers --out file.telex.aes
 ```
+
+`export-aes` retains the legacy TypeScript event JSON route. `export-telex`
+emits complete portable AES; document headers are excluded by default and can
+be included explicitly with `--include-headers`.
 
 Mutation, `compact`, `convert-mode`, and `prettify` commands print edited AEON to stdout by default. Use `--out <file>` or `--write` to write
 to disk. Successful writes now log by default to `.aeon-edit/log.jsonl` beside the target file.

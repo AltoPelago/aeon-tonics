@@ -227,6 +227,21 @@ Exports the current document as AES JSON:
 }
 ```
 
+This command is retained for compatibility with consumers of the TypeScript
+`AssignmentEvent` shape.
+
+### `export-telex`
+
+```sh
+aeon-edit export-telex file.aeon
+aeon-edit export-telex file.aeon --include-headers --out file.telex.aes
+```
+
+Exports the current document as complete portable AES encoded in Telex.
+Headers are omitted by default. When requested, they use the
+`aeon.document.v0` projection and `header=` records rather than ordinary body
+paths.
+
 ### `attr get`
 
 ```sh

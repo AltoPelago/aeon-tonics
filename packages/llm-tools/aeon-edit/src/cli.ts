@@ -25,6 +25,7 @@ import {
   deleteAeonEditNodeAttributeAnnotation,
   deleteAeonEditValue,
   exportAeonEditAes,
+  exportAeonEditTelex,
   getAeonEditAttribute,
   getAeonEditAttributeAnnotation,
   getAeonEditNodeAttribute,
@@ -74,6 +75,7 @@ interface ParsedArgs {
   readonly latest: boolean;
   readonly noLog: boolean;
   readonly comments: CompactCommentMode;
+  readonly includeHeaders: boolean;
 }
 
 interface AeonEditLogRecord {
@@ -155,6 +157,12 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
 
+    if (reviewed.output?.format === 'telex' && reviewed.output.text && parsed.out) {
+      await writeFile(parsed.out, reviewed.output.text, 'utf8');
+      process.stdout.write(parsed.json ? text : `wrote ${parsed.out}\n`);
+      return 0;
+    }
+
     process.stdout.write(text);
     return 0;
   } catch (error) {
@@ -224,6 +232,8 @@ function runCommand(source: string, args: ParsedArgs) {
       return insertAeonEditValue(source, required(args.path, 'path'), required(args.value, 'value'));
     case 'export-aes':
       return exportAeonEditAes(source);
+    case 'export-telex':
+      return exportAeonEditTelex(source, args.includeHeaders);
     default:
       throw new Error(`Unknown command: ${args.command}`);
   }
@@ -339,6 +349,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
       latest: false,
       noLog: true,
       comments: 'semantic',
+      includeHeaders: false,
     };
   }
   const args = [...argv];
@@ -353,6 +364,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
       latest: false,
       noLog: true,
       comments: 'semantic',
+      includeHeaders: false,
     };
   }
   const command = args.shift() ?? 'help';
@@ -374,6 +386,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
   let ledgerKey: string | undefined;
   let latest = false;
   let comments: CompactCommentMode = 'semantic';
+  let includeHeaders = false;
   const positional: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -461,6 +474,9 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
       case '--latest':
         latest = true;
         break;
+      case '--include-headers':
+        includeHeaders = true;
+        break;
       case '--comments': {
         const value = args[index + 1];
         if (value !== 'semantic' && value !== 'all' && value !== 'none') {
@@ -512,6 +528,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs | string {
     latest,
     noLog,
     comments,
+    includeHeaders,
   };
 }
 
@@ -1191,6 +1208,7 @@ function usage(): string {
     '  aeon-edit node-attr-annotation set <file.aeon> <node-path> <key> <annotation-key> <aeon-value> [--out file | --write] [--json]',
     '  aeon-edit node-attr-annotation delete <file.aeon> <node-path> <key> <annotation-key> [--out file | --write] [--json]',
     '  aeon-edit export-aes <file.aeon> [--json]',
+    '  aeon-edit export-telex <file.aeon> [--include-headers] [--out file.telex.aes] [--json]',
     '',
     'Logging:',
     '  --log <file>                 Override the default write log location',
