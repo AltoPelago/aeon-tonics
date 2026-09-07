@@ -56,3 +56,9 @@ aes-diff --path $.app before.aeon after.aeon
 aes-diff apply --from-aes base.aes.json patch.json
 aes-diff apply --from-telex base.telex.aes patch.json
 ```
+
+`--from-aes` is the explicitly tagged legacy TypeScript compatibility route.
+Its JSON must be an object with
+`"contract":"aeon.typescript.assignment-events.v0"` and an `events` array;
+raw arrays and untagged event objects are rejected. Use `--from-telex` for
+portable `aes.events.v0` interchange.

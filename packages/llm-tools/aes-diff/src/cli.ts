@@ -16,7 +16,10 @@ import {
   type AesPatch,
   type DiffAeonOptions,
 } from './index.js';
-import type { AssignmentEvent } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import {
+  TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
+  type AssignmentEvent,
+} from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 
 interface CliOptions extends DiffAeonOptions {
   readonly examples: boolean;
@@ -152,7 +155,7 @@ async function applyMain(argv: readonly string[]): Promise<number> {
     );
 
     process.stdout.write(`${JSON.stringify(result.ok
-      ? { events: result.events }
+      ? { contract: TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0, events: result.events }
       : { ok: false, diagnostics: result.diagnostics }, null, 2)}\n`);
     return result.ok ? 0 : 2;
   } catch (error) {
@@ -285,13 +288,12 @@ function parseArgs(argv: readonly string[]): CliOptions | CliError {
 
 function parseAesInput(text: string, file: string): readonly AssignmentEvent[] {
   const parsed = JSON.parse(text) as unknown;
-  if (Array.isArray(parsed)) {
-    return parsed as readonly AssignmentEvent[];
-  }
-  if (isEventEnvelope(parsed)) {
+  if (isTypeScriptEventEnvelope(parsed)) {
     return parsed.events as readonly AssignmentEvent[];
   }
-  throw new Error(`Expected ${file} to contain an AES event array or an object with an events array`);
+  throw new Error(
+    `Expected ${file} to identify the legacy source contract as '${TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0}' and contain an events array`,
+  );
 }
 
 function parsePatchInput<TEvent extends AesEvent>(text: string, file: string): AesPatch<TEvent> {
@@ -307,10 +309,14 @@ function parsePatchInput<TEvent extends AesEvent>(text: string, file: string): A
   throw new Error(`Expected ${file} to contain an aes.patch object`);
 }
 
-function isEventEnvelope(value: unknown): value is { readonly events: readonly unknown[] } {
+function isTypeScriptEventEnvelope(value: unknown): value is {
+  readonly contract: typeof TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0;
+  readonly events: readonly unknown[];
+} {
   return Boolean(
     value &&
     typeof value === 'object' &&
+    (value as { readonly contract?: unknown }).contract === TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0 &&
     Array.isArray((value as { readonly events?: unknown }).events),
   );
 }
@@ -333,7 +339,7 @@ function usage(): string {
     '  --summary            Emit compact JSON planning summary',
     '  --patch              Emit reviewable aes.patch JSON; does not apply',
     '  --check              Exit 1 when semantic changes are present',
-    '  --from-aes           Read inputs as AES JSON arrays or { events } envelopes',
+    `  --from-aes           Read tagged legacy ${TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0} JSON`,
     '  --from-telex         Read complete portable AES inputs as Telex',
     '  --path <path>        Only compare a canonical path subtree; repeatable',
     '  --include-unchanged  Include unchanged count in text output',

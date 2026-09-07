@@ -224,12 +224,14 @@ Exports the current document as AES JSON:
 
 ```json
 {
+  "contract": "aeon.typescript.assignment-events.v0",
   "events": []
 }
 ```
 
 This command is retained for compatibility with consumers of the TypeScript
-`AssignmentEvent` shape.
+`AssignmentEvent` shape. The contract discriminator is required; this JSON is
+not portable `aes.events.v0`.
 
 ### `export-telex`
 

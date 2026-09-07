@@ -15,10 +15,10 @@ a portable AES encoding.
 
 | Surface | Contract | Status |
 | --- | --- | --- |
-| `aes-diff --from-aes` | Legacy TypeScript event JSON | Retained as an explicit compatibility route. |
+| `aes-diff --from-aes` | Tagged `aeon.typescript.assignment-events.v0` JSON | Retained as an explicit compatibility route; raw arrays and untagged `{ events }` objects fail closed. |
 | `aes-diff --from-telex` | Complete portable AES in Telex | Implemented for diff and patch creation. Input is parsed and validated. |
 | `aes-diff apply --from-telex` | Portable patch plus complete Telex base | Implemented; successful output is Telex. |
-| `aeon-edit export-aes` | Legacy TypeScript event JSON | Retained as an explicit compatibility route. |
+| `aeon-edit export-aes` | Tagged `aeon.typescript.assignment-events.v0` JSON | Retained as an explicit compatibility route and emits the source-contract discriminator. |
 | `aeon-edit export-telex` | Complete portable AES in Telex | Implemented; AEON document headers remain opt-in. |
 
 ## Same-process surfaces
@@ -37,6 +37,12 @@ not be simulated by casting parsed Telex records to `AssignmentEvent`.
 The signed-ledger JSONL format is a ledger protocol containing application
 payloads and signatures. It is not an AES event encoding. A future ledger whose
 payload is AES should identify and sign the exact Telex or Film bytes used.
+
+`aes.patch` v1 remains a path-keyed review/application artifact over the input
+event representation, not a portable AES transaction, digest, signature, or
+ledger format. It must not be treated as independently replayable authority.
+The explicit Assignment Event Transaction and portable signature-policy work
+owns any future promotion of such a carrier.
 
 ## Path and identity contract
 

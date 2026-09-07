@@ -854,6 +854,7 @@ test('CLI exports AES JSON', async () => {
   const result = await execFileAsync(process.execPath, [cliPath, 'export-aes', file]);
   const parsed = JSON.parse(result.stdout);
 
+  assert.equal(parsed.contract, 'aeon.typescript.assignment-events.v0');
   assert.equal(Array.isArray(parsed.events), true);
 });
 

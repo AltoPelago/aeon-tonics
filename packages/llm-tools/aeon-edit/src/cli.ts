@@ -967,7 +967,7 @@ function renderHuman(result: ReturnType<typeof runCommand> | AeonEditResult): st
     return renderPreflight(result.preflight);
   }
   if (result.output?.format === 'aes') {
-    return `${JSON.stringify({ events: result.output.events }, null, 2)}\n`;
+    return `${JSON.stringify({ contract: result.output.contract, events: result.output.events }, null, 2)}\n`;
   }
   if (result.output?.text) {
     return result.output.text;

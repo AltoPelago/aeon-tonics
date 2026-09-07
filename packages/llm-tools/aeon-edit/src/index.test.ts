@@ -300,6 +300,7 @@ test('exports AES events', () => {
 
   assert.equal(result.ok, true);
   assert.equal(result.output?.format, 'aes');
+  assert.equal(result.output?.contract, 'aeon.typescript.assignment-events.v0');
   assert.equal(events.length > 0, true);
 });
 

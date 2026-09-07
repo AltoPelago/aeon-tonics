@@ -73,8 +73,8 @@ test('CLI can compare AES JSON inputs', async () => {
   assert.equal(beforeEvents.errors.length, 0);
   assert.equal(afterEvents.errors.length, 0);
 
-  await writeFile(before, JSON.stringify({ events: beforeEvents.events }), 'utf8');
-  await writeFile(after, JSON.stringify(afterEvents.events), 'utf8');
+  await writeFile(before, JSON.stringify({ contract: 'aeon.typescript.assignment-events.v0', events: beforeEvents.events }), 'utf8');
+  await writeFile(after, JSON.stringify({ contract: 'aeon.typescript.assignment-events.v0', events: afterEvents.events }), 'utf8');
 
   const result = await execFileAsync(process.execPath, [cliPath, '--from-aes', '--json', before, after]);
   const parsed = JSON.parse(result.stdout);
@@ -87,6 +87,28 @@ test('CLI can compare AES JSON inputs', async () => {
       ['changed', '$.a'],
       ['added', '$.b'],
     ],
+  );
+});
+
+test('CLI rejects untagged JSON on the legacy AES compatibility route', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aes-diff-untagged-'));
+  const before = join(dir, 'before.aes.json');
+  const after = join(dir, 'after.aes.json');
+  const compiled = compile('a = 1\n');
+  assert.equal(compiled.errors.length, 0);
+  await writeFile(before, JSON.stringify({ events: compiled.events }), 'utf8');
+  await writeFile(after, JSON.stringify(compiled.events), 'utf8');
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, '--from-aes', before, after]),
+    (error: unknown) => {
+      assert.equal((error as { code?: number }).code, 2);
+      assert.match(
+        String((error as { stderr?: string }).stderr ?? ''),
+        /aeon\.typescript\.assignment-events\.v0/u,
+      );
+      return true;
+    },
   );
 });
 
@@ -176,13 +198,14 @@ test('CLI can apply patch JSON to AES JSON input', async () => {
   assert.equal(before.errors.length, 0);
   assert.equal(after.errors.length, 0);
 
-  await writeFile(base, JSON.stringify({ events: before.events }), 'utf8');
+  await writeFile(base, JSON.stringify({ contract: 'aeon.typescript.assignment-events.v0', events: before.events }), 'utf8');
   await writeFile(patchFile, JSON.stringify(createAesPatch(diffAes(before.events, after.events))), 'utf8');
 
   const result = await execFileAsync(process.execPath, [cliPath, 'apply', '--from-aes', base, patchFile]);
   const parsed = JSON.parse(result.stdout);
   const verification = diffAes(parsed.events, after.events);
 
+  assert.equal(parsed.contract, 'aeon.typescript.assignment-events.v0');
   assert.equal(Array.isArray(parsed.events), true);
   assert.equal(verification.changes.length, 0);
 });
@@ -199,7 +222,7 @@ test('CLI apply rejects stale AES bases', async () => {
   assert.equal(after.errors.length, 0);
   assert.equal(stale.errors.length, 0);
 
-  await writeFile(base, JSON.stringify({ events: stale.events }), 'utf8');
+  await writeFile(base, JSON.stringify({ contract: 'aeon.typescript.assignment-events.v0', events: stale.events }), 'utf8');
   await writeFile(patchFile, JSON.stringify(createAesPatch(diffAes(before.events, after.events))), 'utf8');
 
   await assert.rejects(

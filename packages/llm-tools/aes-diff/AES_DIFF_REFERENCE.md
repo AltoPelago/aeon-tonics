@@ -183,7 +183,10 @@ Compare AES JSON:
 aes-diff --from-aes before.aes.json after.aes.json
 ```
 
-This is the legacy TypeScript `AssignmentEvent` JSON compatibility route.
+This is the legacy TypeScript `AssignmentEvent` JSON compatibility route. Its
+input object must identify
+`contract: "aeon.typescript.assignment-events.v0"`; raw arrays and untagged
+`{ events }` objects are rejected. It is not portable AES interchange.
 
 Compare complete portable AES streams:
 
