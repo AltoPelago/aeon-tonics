@@ -14,9 +14,9 @@ For metadata edits, prefer guarded planners:
 
 ```sh
 aeon-edit plan-attr-set file.aeon $.app owner '"tools"' > ops.json
-aeon-edit plan-node-attr-set file.aeon $.view id '"main"' > ops.json
+aeon-edit plan-node-attr-set file.aeon $.view[0] id '"main"' > ops.json
 aeon-edit plan-attr-annotation-set file.aeon $.app owner source '"ui"' > ops.json
-aeon-edit plan-node-attr-annotation-set file.aeon $.view id source '"ui"' > ops.json
+aeon-edit plan-node-attr-annotation-set file.aeon $.view[0] id source '"ui"' > ops.json
 ```
 
 `--check` is the safety gate:

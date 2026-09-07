@@ -45,6 +45,7 @@ test('parses CLI paths into Titonic path segments', () => {
   assert.deepEqual(parseAeonEditPath('$.app.name'), ['app', 'name']);
   assert.deepEqual(parseAeonEditPath('$.items[1]'), ['items', 1]);
   assert.deepEqual(parseAeonEditPath('$."quoted key"'), ['quoted key']);
+  assert.deepEqual(parseAeonEditPath('$.[' + JSON.stringify('quoted key') + ']'), ['quoted key']);
 });
 
 test('gets values through Titonic', () => {
@@ -58,12 +59,30 @@ test('gets values through Titonic', () => {
   });
 });
 
+test('gets quoted members through canonical portable path spelling', () => {
+  const result = getAeonEditValue('aeon:mode = "strict"\n"quoted key":string = "value"', '$.[' + JSON.stringify('quoted key') + ']');
+
+  assert.equal(result.value, 'value');
+});
+
 test('sets values from AEON snippets and exports edited AEON', () => {
   const result = setAeonEditValue(source, '$.app.count', '2');
 
   assert.equal(result.ok, true);
   assert.equal(result.changed, true);
   assert.match(result.output?.text ?? '', /count:number=2/);
+});
+
+test('sets new values without losing portable parent translation', () => {
+  const objectResult = setAeonEditValue(source, '$.app.enabled', 'true');
+  const nodeResult = setAeonEditValue(
+    'aeon:mode = "strict"\nview:node = <panel:node("hello")>',
+    '$.view[0][1]',
+    '"tail"',
+  );
+
+  assert.match(objectResult.output?.text ?? '', /enabled:boolean=true/);
+  assert.match(nodeResult.output?.text ?? '', /<panel:node\("hello","tail"\)>/);
 });
 
 test('preserves structural identities while editing values', () => {
@@ -115,7 +134,7 @@ test('applies batch operations in one document mutation cycle', () => {
     { command: 'set', path: '$.app.count', value: '2' },
     { command: 'append', path: '$.items', value: '3' },
     { command: 'attr.set', path: '$.app', key: 'owner', value: '"tools"' },
-    { command: 'node-attr.set', path: '$.view', key: 'id', value: '"main"' },
+    { command: 'node-attr.set', path: '$.view[0]', key: 'id', value: '"main"' },
   ]);
   const operationResults = result.value as readonly { readonly changed: boolean }[];
 
@@ -237,7 +256,7 @@ test('plans guarded node attribute set operations', () => {
     'aeon:mode = "strict"',
     'view:node = <panel@{id:string="hero"}:node>',
   ].join('\n');
-  const result = planAeonEditNodeAttributeSet(withNode, '$.view', 'id', '"main"');
+  const result = planAeonEditNodeAttributeSet(withNode, '$.view[0]', 'id', '"main"');
   const plan = result.value as { readonly operations: readonly { readonly command: string; readonly expectAttribute?: string; readonly value?: string }[] };
 
   assert.equal(plan.operations[0]?.command, 'node-attr.set');
@@ -266,7 +285,7 @@ test('plans guarded node attribute annotation set operations', () => {
     'aeon:mode = "strict"',
     'view:node = <panel@{id@{source:string="seed"}:string="hero"}:node>',
   ].join('\n');
-  const result = planAeonEditNodeAttributeAnnotationSet(withNode, '$.view', 'id', 'source', '"ui"');
+  const result = planAeonEditNodeAttributeAnnotationSet(withNode, '$.view[0]', 'id', 'source', '"ui"');
   const plan = result.value as { readonly operations: readonly { readonly command: string; readonly expectAttribute?: string; readonly expectAnnotation?: string; readonly value?: string }[] };
 
   assert.equal(plan.operations[0]?.command, 'node-attr-annotation.set');
@@ -331,9 +350,41 @@ test('lists reusable edit paths including node children', () => {
     readonly nodeAttributes?: readonly string[];
   }[];
 
-  assert.equal(entries.some((entry) => entry.path === '$.view' && entry.nodeAttributes?.includes('id')), true);
-  assert.equal(entries.some((entry) => entry.path === '$.view.children[0]' && entry.kind === 'string'), true);
-  assert.equal(entries.some((entry) => entry.path === '$.view.children[1]' && entry.kind === 'node'), true);
+  assert.equal(entries.some((entry) => entry.path === '$.view' && entry.kind === 'node'), true);
+  assert.equal(entries.some((entry) => entry.path === '$.view[0]' && entry.kind === 'node-head' && entry.nodeAttributes?.includes('id')), true);
+  assert.equal(entries.some((entry) => entry.path === '$.view[0][0]' && entry.kind === 'string'), true);
+  assert.equal(entries.some((entry) => entry.path === '$.view[0][1]' && entry.kind === 'node'), true);
+  assert.equal(entries.some((entry) => entry.path === '$.view[0][1][0]' && entry.kind === 'node-head'), true);
+});
+
+test('edits node content through portable event paths', () => {
+  const withNode = [
+    'aeon:mode = "strict"',
+    'view:node = <panel:node("hello", <br:node>)>',
+  ].join('\n');
+
+  assert.equal(getAeonEditValue(withNode, '$.view[0][0]').value, 'hello');
+  const result = setAeonEditValue(withNode, '$.view[0][0]', '"welcome"');
+  assert.match(result.output?.text ?? '', /<panel:node\("welcome",<br:node>\)>/);
+});
+
+test('node metadata preflight requires the explicit NodeHead path', () => {
+  const withNode = [
+    'aeon:mode = "strict"',
+    'view:node = <panel@{id:string="hero"}:node>',
+  ].join('\n');
+
+  const legacy = preflightAeonEditBatch(withNode, [
+    { command: 'node-attr.set', path: '$.view', key: 'id', value: '"main"' },
+  ]);
+  const portable = preflightAeonEditBatch(withNode, [
+    { command: 'node-attr.set', path: '$.view[0]', key: 'id', value: '"main"' },
+  ]);
+
+  assert.equal(legacy.ok, false);
+  assert.equal(legacy.diagnostics[0]?.code, 'TARGET_NOT_NODE');
+  assert.match(legacy.diagnostics[0]?.message ?? '', /NodeHead event path/);
+  assert.equal(portable.ok, true);
 });
 
 test('gets, sets, and deletes binding attributes', () => {
@@ -380,13 +431,13 @@ test('gets, sets, and deletes node-head attributes', () => {
     'view:node = <panel@{id:string="hero"}:node>',
   ].join('\n');
 
-  const read = getAeonEditNodeAttribute(withNodeAttribute, '$.view', 'id');
+  const read = getAeonEditNodeAttribute(withNodeAttribute, '$.view[0]', 'id');
   assert.equal((read.value as { readonly value?: { readonly value?: string } }).value?.value, 'hero');
 
-  const set = setAeonEditNodeAttribute(withNodeAttribute, '$.view', 'id', '"main"');
+  const set = setAeonEditNodeAttribute(withNodeAttribute, '$.view[0]', 'id', '"main"');
   assert.match(set.output?.text ?? '', /id:string="main"/);
 
-  const deleted = deleteAeonEditNodeAttribute(withNodeAttribute, '$.view', 'id');
+  const deleted = deleteAeonEditNodeAttribute(withNodeAttribute, '$.view[0]', 'id');
   assert.equal(deleted.changed, true);
   assert.doesNotMatch(deleted.output?.text ?? '', /id:string/);
 });
@@ -397,13 +448,13 @@ test('gets, sets, and deletes nested node-head attribute annotations', () => {
     'view:node = <panel@{id@{source:string="seed"}:string="hero"}:node>',
   ].join('\n');
 
-  const read = getAeonEditNodeAttributeAnnotation(withNodeAnnotation, '$.view', 'id', 'source');
+  const read = getAeonEditNodeAttributeAnnotation(withNodeAnnotation, '$.view[0]', 'id', 'source');
   assert.equal((read.value as { readonly value?: { readonly value?: string } }).value?.value, 'seed');
 
-  const set = setAeonEditNodeAttributeAnnotation(withNodeAnnotation, '$.view', 'id', 'source', '"ui"');
+  const set = setAeonEditNodeAttributeAnnotation(withNodeAnnotation, '$.view[0]', 'id', 'source', '"ui"');
   assert.match(set.output?.text ?? '', /source:string="ui"/);
 
-  const deleted = deleteAeonEditNodeAttributeAnnotation(withNodeAnnotation, '$.view', 'id', 'source');
+  const deleted = deleteAeonEditNodeAttributeAnnotation(withNodeAnnotation, '$.view[0]', 'id', 'source');
   assert.equal(deleted.changed, true);
   assert.doesNotMatch(deleted.output?.text ?? '', /source:string/);
 });

@@ -839,6 +839,40 @@ test('titonic resolves exact SANSA member and position addresses', () => {
   ]);
 });
 
+test('titonic SANSA navigation exposes the portable node-head hierarchy', () => {
+  const titonic = createTitonicFromAeon([
+    'aeon:mode = "strict"',
+    'view:node = <panel:node("hello", <br:node>)>',
+  ].join('\n'));
+
+  const head = resolveTitonicAddress(titonic, '$.view[0]');
+  const firstChild = resolveTitonicAddress(titonic, '$.view[0][0]');
+  const nestedHead = resolveTitonicAddress(titonic, '$.view[0][1][0]');
+  const expanded = resolveTitonicAddress(titonic, '$.view.**');
+  const filteredHeads = resolveTitonicAddress(titonic, '$.view.**%NodeHead');
+
+  assert.deepEqual(head.bindings.map((binding) => [binding.pathText, binding.representationKind, binding.occurrence, binding.value]), [
+    ['$.view[0]', 'NodeHead', 'node-head', 'panel'],
+  ]);
+  assert.deepEqual(firstChild.bindings.map((binding) => [binding.pathText, binding.value]), [
+    ['$.view[0][0]', 'hello'],
+  ]);
+  assert.deepEqual(nestedHead.bindings.map((binding) => [binding.pathText, binding.representationKind]), [
+    ['$.view[0][1][0]', 'NodeHead'],
+  ]);
+  assert.deepEqual(expanded.bindings.map((binding) => binding.pathText), [
+    '$.view[0]',
+    '$.view[0][0]',
+    '$.view[0][1]',
+    '$.view[0][1][0]',
+  ]);
+  assert.deepEqual(filteredHeads.bindings.map((binding) => binding.pathText), [
+    '$.view[0]',
+    '$.view[0][1][0]',
+  ]);
+  assert.deepEqual(firstChild.bindings[0]?.titonicPath, ['view', TITONIC_CHILDREN, 0]);
+});
+
 test('titonic resolves SANSA direct expansion and representation filters', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
@@ -846,12 +880,12 @@ test('titonic resolves SANSA direct expansion and representation filters', () =>
   ].join('\n'));
 
   const expanded = resolveTitonicAddress(titonic, '$.inventory.items[0].*');
-  const strings = resolveTitonicAddress(titonic, '$.inventory.items[0].*%stringLiteral');
+  const strings = resolveTitonicAddress(titonic, '$.inventory.items[0].*%StringLiteral');
 
   assert.equal(expanded.exact, false);
   assert.deepEqual(expanded.bindings.map((binding) => [binding.pathText, binding.representationKind]), [
-    ['$.inventory.items[0].sku', 'stringLiteral'],
-    ['$.inventory.items[0].qty', 'numberLiteral'],
+    ['$.inventory.items[0].sku', 'StringLiteral'],
+    ['$.inventory.items[0].qty', 'NumberLiteral'],
   ]);
   assert.deepEqual(strings.bindings.map((binding) => binding.pathText), ['$.inventory.items[0].sku']);
 });

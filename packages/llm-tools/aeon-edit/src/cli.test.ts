@@ -550,7 +550,7 @@ test('CLI applies batch operations from JSON', async () => {
       { command: 'set', path: '$.app.count', value: '2' },
       { command: 'append', path: '$.items', value: '3' },
       { command: 'attr.set', path: '$.app', key: 'owner', value: '"tools"' },
-      { command: 'node-attr.set', path: '$.view', key: 'id', value: '"main"' },
+      { command: 'node-attr.set', path: '$.view[0]', key: 'id', value: '"main"' },
     ],
   }), 'utf8');
 
@@ -778,7 +778,7 @@ test('CLI plan-node-attr-set emits and applies a guarded node metadata operation
     'view:node = <panel@{id:string="hero"}:node>',
   ].join('\n'), 'utf8');
 
-  const planned = await execFileAsync(process.execPath, [cliPath, 'plan-node-attr-set', file, '$.view', 'id', '"main"']);
+  const planned = await execFileAsync(process.execPath, [cliPath, 'plan-node-attr-set', file, '$.view[0]', 'id', '"main"']);
   const plan = JSON.parse(planned.stdout);
   assert.equal(plan.operations[0].command, 'node-attr.set');
   assert.equal(plan.operations[0].expectAttribute, '"hero"');
@@ -831,7 +831,7 @@ test('CLI plan-node-attr-annotation-set emits and applies a guarded nested node 
     cliPath,
     'plan-node-attr-annotation-set',
     file,
-    '$.view',
+    '$.view[0]',
     'id',
     'source',
     '"ui"',
@@ -903,8 +903,9 @@ test('CLI inspects and lists paths', async () => {
   assert.match(inspected.stdout, /children: \$\.app\.name/);
 
   const listed = await execFileAsync(process.execPath, [cliPath, 'list', file]);
-  assert.match(listed.stdout, /^\$\.view node:node nodeAttrs:id/m);
-  assert.match(listed.stdout, /^\$\.view\.children\[0\] string/m);
+  assert.match(listed.stdout, /^\$\.view node:node/m);
+  assert.match(listed.stdout, /^\$\.view\[0\] node-head:node nodeAttrs:id/m);
+  assert.match(listed.stdout, /^\$\.view\[0\]\[0\] string/m);
 
   const json = await execFileAsync(process.execPath, [cliPath, 'list', file, '--json']);
   const parsed = JSON.parse(json.stdout);
@@ -985,13 +986,13 @@ test('CLI gets, sets, and deletes node-head attributes', async () => {
     'view:node = <panel@{id:string="hero"}:node>',
   ].join('\n'), 'utf8');
 
-  const read = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'get', file, '$.view', 'id', '--json']);
+  const read = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'get', file, '$.view[0]', 'id', '--json']);
   assert.equal(JSON.parse(read.stdout).value.value.value, 'hero');
 
-  const set = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'set', file, '$.view', 'id', '"main"']);
+  const set = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'set', file, '$.view[0]', 'id', '"main"']);
   assert.match(set.stdout, /id:string="main"/);
 
-  const deleted = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'delete', file, '$.view', 'id']);
+  const deleted = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'delete', file, '$.view[0]', 'id']);
   assert.doesNotMatch(deleted.stdout, /id:string/);
 });
 
@@ -1008,7 +1009,7 @@ test('CLI gets, sets, and deletes nested node-head attribute annotations', async
     'node-attr-annotation',
     'get',
     file,
-    '$.view',
+    '$.view[0]',
     'id',
     'source',
     '--json',
@@ -1020,7 +1021,7 @@ test('CLI gets, sets, and deletes nested node-head attribute annotations', async
     'node-attr-annotation',
     'set',
     file,
-    '$.view',
+    '$.view[0]',
     'id',
     'source',
     '"ui"',
@@ -1032,7 +1033,7 @@ test('CLI gets, sets, and deletes nested node-head attribute annotations', async
     'node-attr-annotation',
     'delete',
     file,
-    '$.view',
+    '$.view[0]',
     'id',
     'source',
   ]);

@@ -108,11 +108,15 @@ export interface TitonicResolveOptions {
 }
 
 export interface TitonicResolvedBinding {
+  /** @deprecated Titonic-internal path retained for mutation compatibility. Use portablePath for public addressing. */
   readonly path: readonly TitonicPathSegment[];
+  readonly titonicPath: readonly TitonicPathSegment[];
+  readonly portablePath: readonly ReferencePathSegment[];
   readonly pathText: string;
   readonly value: TitonicValue;
   readonly datatype?: string;
   readonly representationKind: string;
+  readonly occurrence: 'value' | 'node-head';
 }
 
 export interface TitonicResolveResult {
@@ -502,12 +506,9 @@ export function resolveTitonicAddress(
       };
     }
     const contextPath = normalizeTitonicPath(options.contextPath);
-    candidates = [{
-      path: contextPath,
-      node: contextPath.length === 0 ? controller.root : resolvePathNodeForRead(controller, contextPath),
-    }];
+    candidates = [candidateFromTitonicPath(controller, contextPath)];
   } else {
-    candidates = [{ path: [], node: controller.root }];
+    candidates = [{ path: [], portablePath: [], node: controller.root, occurrence: 'value' }];
   }
 
   for (let index = 0; index < address.selectors.length; index += 1) {
@@ -1005,9 +1006,55 @@ function getControllerFromProxy(value: object): TitonicController {
   return controller;
 }
 
+function candidateFromTitonicPath(
+  controller: TitonicController,
+  path: readonly ReferencePathSegment[],
+): TitonicResolveCandidate {
+  let candidate: TitonicResolveCandidate = {
+    path: [],
+    portablePath: [],
+    node: controller.root,
+    occurrence: 'value',
+  };
+  const internalPath: ReferencePathSegment[] = [];
+
+  for (const segment of path) {
+    if (segment === ELEMENT_CHILDREN_SEGMENT) {
+      const readable = resolveReadableTitonicNode(controller, candidate.node);
+      if (candidate.occurrence !== 'value' || readable.kind !== 'element') {
+        throw new Error(`Titonic expected an element while translating ${formatReferencePathForError(path)} to a portable path.`);
+      }
+      candidate = {
+        path: [...internalPath],
+        portablePath: [...candidate.portablePath, 0],
+        node: candidate.node,
+        occurrence: 'node-head',
+        parent: candidate,
+      };
+      internalPath.push(segment);
+      continue;
+    }
+
+    internalPath.push(segment);
+    const child = resolvePathNodeForRead(controller, internalPath);
+    candidate = {
+      path: [...internalPath],
+      portablePath: [...candidate.portablePath, segment],
+      node: child,
+      occurrence: 'value',
+      parent: candidate,
+    };
+  }
+
+  return candidate;
+}
+
 interface TitonicResolveCandidate {
   readonly path: readonly ReferencePathSegment[];
+  readonly portablePath: readonly ReferencePathSegment[];
   readonly node: TitonicNode;
+  readonly occurrence: 'value' | 'node-head';
+  readonly parent?: TitonicResolveCandidate;
 }
 
 interface TitonicResolveSelectorResult {
@@ -1030,12 +1077,7 @@ function resolveTitonicSelector(
       return { candidates: resolvePositionRangeSelector(controller, candidates, selector.start, selector.end), diagnostics: [] };
     case 'parent':
       return {
-        candidates: candidates
-          .filter((candidate) => candidate.path.length > 0)
-          .map((candidate) => {
-            const path = candidate.path.slice(0, -1);
-            return { path, node: path.length === 0 ? controller.root : resolvePathNodeForRead(controller, path) };
-          }),
+        candidates: candidates.flatMap((candidate) => candidate.parent === undefined ? [] : [candidate.parent]),
         diagnostics: [],
       };
     case 'directExpansion':
@@ -1045,9 +1087,16 @@ function resolveTitonicSelector(
     case 'namePattern':
       return { candidates: resolveNamePatternSelector(controller, candidates, selector.pattern), diagnostics: [] };
     case 'semanticTypeFilter':
-      return { candidates: candidates.filter((candidate) => matchesTitonicSemanticType(controller, candidate.node, selector.name)), diagnostics: [] };
+      return { candidates: candidates.filter((candidate) => matchesTitonicSemanticType(controller, candidate.node, selector.name, candidate.occurrence)), diagnostics: [] };
     case 'representationKindFilter':
-      return { candidates: candidates.filter((candidate) => representationKindForTitonicNode(candidate.node) === selector.name), diagnostics: [] };
+      return {
+        candidates: candidates.filter((candidate) => (
+          candidate.occurrence === 'node-head'
+            ? 'NodeHead'
+            : representationKindForTitonicNode(candidate.node)
+        ) === selector.name),
+        diagnostics: [],
+      };
     case 'attributeSpace':
       return {
         candidates: [],
@@ -1080,13 +1129,20 @@ function resolveMemberSelector(
 ): readonly TitonicResolveCandidate[] {
   const matches: TitonicResolveCandidate[] = [];
   for (const candidate of candidates) {
+    if (candidate.occurrence === 'node-head') continue;
     const node = resolveReadableTitonicNode(controller, candidate.node);
     if (node.kind !== 'object') {
       continue;
     }
     const child = node.properties.get(name);
     if (child) {
-      matches.push({ path: [...candidate.path, name], node: child });
+      matches.push({
+        path: [...candidate.path, name],
+        portablePath: [...candidate.portablePath, name],
+        node: child,
+        occurrence: 'value',
+        parent: candidate,
+      });
     }
   }
   return matches;
@@ -1100,12 +1156,43 @@ function resolvePositionSelector(
   const matches: TitonicResolveCandidate[] = [];
   for (const candidate of candidates) {
     const node = resolveReadableTitonicNode(controller, candidate.node);
+    if (candidate.occurrence === 'value' && node.kind === 'element') {
+      if (index === 0) {
+        matches.push({
+          path: candidate.path,
+          portablePath: [...candidate.portablePath, 0],
+          node: candidate.node,
+          occurrence: 'node-head',
+          parent: candidate,
+        });
+      }
+      continue;
+    }
+    if (candidate.occurrence === 'node-head' && node.kind === 'element') {
+      const child = node.children.items[index];
+      if (child) {
+        matches.push({
+          path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
+          portablePath: [...candidate.portablePath, index],
+          node: child,
+          occurrence: 'value',
+          parent: candidate,
+        });
+      }
+      continue;
+    }
     if (node.kind !== 'list' && node.kind !== 'tuple') {
       continue;
     }
     const child = node.items[index];
     if (child) {
-      matches.push({ path: [...candidate.path, index], node: child });
+      matches.push({
+        path: [...candidate.path, index],
+        portablePath: [...candidate.portablePath, index],
+        node: child,
+        occurrence: 'value',
+        parent: candidate,
+      });
     }
   }
   return matches;
@@ -1120,12 +1207,47 @@ function resolvePositionRangeSelector(
   const matches: TitonicResolveCandidate[] = [];
   for (const candidate of candidates) {
     const node = resolveReadableTitonicNode(controller, candidate.node);
+    if (candidate.occurrence === 'value' && node.kind === 'element') {
+      if ((start ?? 0) <= 0 && (end ?? 0) >= 0) {
+        matches.push({
+          path: candidate.path,
+          portablePath: [...candidate.portablePath, 0],
+          node: candidate.node,
+          occurrence: 'node-head',
+          parent: candidate,
+        });
+      }
+      continue;
+    }
+    if (candidate.occurrence === 'node-head' && node.kind === 'element') {
+      const first = start ?? 0;
+      const last = Math.min(end ?? node.children.items.length - 1, node.children.items.length - 1);
+      for (let index = first; index <= last; index += 1) {
+        const child = node.children.items[index];
+        if (child) {
+          matches.push({
+            path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
+            portablePath: [...candidate.portablePath, index],
+            node: child,
+            occurrence: 'value',
+            parent: candidate,
+          });
+        }
+      }
+      continue;
+    }
     if (node.kind !== 'list' && node.kind !== 'tuple') continue;
     const first = start ?? 0;
     const last = Math.min(end ?? node.items.length - 1, node.items.length - 1);
     for (let index = first; index <= last; index += 1) {
       const child = node.items[index];
-      if (child) matches.push({ path: [...candidate.path, index], node: child });
+      if (child) matches.push({
+        path: [...candidate.path, index],
+        portablePath: [...candidate.portablePath, index],
+        node: child,
+        occurrence: 'value',
+        parent: candidate,
+      });
     }
   }
   return matches;
@@ -1139,8 +1261,8 @@ function resolveNamePatternSelector(
   const matcher = globPatternToRegExp(pattern);
   return candidates.flatMap((candidate) =>
     directTitonicChildren(controller, candidate).filter((child) => {
-      const key = child.path[child.path.length - 1];
-      return typeof key === 'string' && key !== ELEMENT_CHILDREN_SEGMENT && matcher.test(key);
+      const key = child.portablePath[child.portablePath.length - 1];
+      return typeof key === 'string' && matcher.test(key);
     }),
   );
 }
@@ -1150,23 +1272,42 @@ function directTitonicChildren(
   candidate: TitonicResolveCandidate,
 ): readonly TitonicResolveCandidate[] {
   const node = resolveReadableTitonicNode(controller, candidate.node);
+  if (candidate.occurrence === 'node-head') {
+    if (node.kind !== 'element') return [];
+    return node.children.items.map((child, index) => ({
+      path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
+      portablePath: [...candidate.portablePath, index],
+      node: child,
+      occurrence: 'value',
+      parent: candidate,
+    }));
+  }
   if (node.kind === 'object') {
     return [...node.properties.entries()].map(([key, child]) => ({
       path: [...candidate.path, key],
+      portablePath: [...candidate.portablePath, key],
       node: child,
+      occurrence: 'value',
+      parent: candidate,
     }));
   }
   if (node.kind === 'list' || node.kind === 'tuple') {
     return node.items.map((child, index) => ({
       path: [...candidate.path, index],
+      portablePath: [...candidate.portablePath, index],
       node: child,
+      occurrence: 'value',
+      parent: candidate,
     }));
   }
   if (node.kind === 'element') {
-    return node.children.items.map((child, index) => ({
-      path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
-      node: child,
-    }));
+    return [{
+      path: candidate.path,
+      portablePath: [...candidate.portablePath, 0],
+      node: candidate.node,
+      occurrence: 'node-head',
+      parent: candidate,
+    }];
   }
   return [];
 }
@@ -1183,9 +1324,12 @@ function matchesTitonicSemanticType(
   controller: TitonicController,
   node: TitonicNode,
   expected: string,
+  occurrence: 'value' | 'node-head' = 'value',
 ): boolean {
   const readable = resolveReadableTitonicNode(controller, node);
-  const datatype = node.declaredDatatype ?? (readable.kind === 'element' ? readable.headDatatype : undefined);
+  const datatype = occurrence === 'node-head' && readable.kind === 'element'
+    ? readable.headDatatype
+    : node.declaredDatatype;
   return datatype === expected || (datatype !== undefined && datatypeBaseName(datatype) === expected);
 }
 
@@ -1200,12 +1344,26 @@ function bindingFromResolveCandidate(
   controller: TitonicController,
   candidate: TitonicResolveCandidate,
 ): TitonicResolvedBinding {
+  const readable = resolveReadableTitonicNode(controller, candidate.node);
   return {
     path: publicTitonicPath(candidate.path),
-    pathText: formatTitonicResolvePath(candidate.path),
-    value: controller.proxyFor(resolveReadableTitonicNode(controller, candidate.node)),
-    ...(candidate.node.declaredDatatype ? { datatype: candidate.node.declaredDatatype } : {}),
-    representationKind: representationKindForTitonicNode(candidate.node),
+    titonicPath: publicTitonicPath(candidate.path),
+    portablePath: Object.freeze([...candidate.portablePath]),
+    pathText: formatTitonicResolvePath(candidate.portablePath),
+    value: candidate.occurrence === 'node-head' && readable.kind === 'element'
+      ? readable.tag
+      : controller.proxyFor(readable),
+    ...((candidate.occurrence === 'node-head' && readable.kind === 'element'
+      ? readable.headDatatype
+      : candidate.node.declaredDatatype) ? {
+        datatype: candidate.occurrence === 'node-head'
+          ? (readable as ElementNode).headDatatype
+          : candidate.node.declaredDatatype,
+      } : {}),
+    representationKind: candidate.occurrence === 'node-head'
+      ? 'NodeHead'
+      : representationKindForTitonicNode(candidate.node),
+    occurrence: candidate.occurrence,
   };
 }
 
@@ -1214,8 +1372,7 @@ function publicTitonicPath(path: readonly ReferencePathSegment[]): readonly Tito
 }
 
 function representationKindForTitonicNode(node: TitonicNode): string {
-  const type = nodeToAstValue(node).type;
-  return `${type.charAt(0).toLowerCase()}${type.slice(1)}`;
+  return nodeToAstValue(node).type;
 }
 
 function globPatternToRegExp(pattern: string): RegExp {

@@ -25,9 +25,9 @@ aeon-edit prettify file.aeon
 aeon-edit prettify file.aeon --write
 aeon-edit plan-set file.aeon $.path '2'
 aeon-edit plan-attr-set file.aeon $.app owner '"tools"'
-aeon-edit plan-node-attr-set file.aeon $.view id '"main"'
+aeon-edit plan-node-attr-set file.aeon $.view[0] id '"main"'
 aeon-edit plan-attr-annotation-set file.aeon $.app owner source '"ui"'
-aeon-edit plan-node-attr-annotation-set file.aeon $.view id source '"ui"'
+aeon-edit plan-node-attr-annotation-set file.aeon $.view[0] id source '"ui"'
 aeon-edit set file.aeon $.path '2'
 aeon-edit delete file.aeon $.path
 aeon-edit append file.aeon $.items '3'
@@ -52,12 +52,12 @@ aeon-edit attr delete file.aeon $.app owner
 aeon-edit attr-annotation get file.aeon $.app owner source
 aeon-edit attr-annotation set file.aeon $.app owner source '"ui"'
 aeon-edit attr-annotation delete file.aeon $.app owner source
-aeon-edit node-attr get file.aeon $.view id
-aeon-edit node-attr set file.aeon $.view id '"main"'
-aeon-edit node-attr delete file.aeon $.view id
-aeon-edit node-attr-annotation get file.aeon $.view id source
-aeon-edit node-attr-annotation set file.aeon $.view id source '"ui"'
-aeon-edit node-attr-annotation delete file.aeon $.view id source
+aeon-edit node-attr get file.aeon $.view[0] id
+aeon-edit node-attr set file.aeon $.view[0] id '"main"'
+aeon-edit node-attr delete file.aeon $.view[0] id
+aeon-edit node-attr-annotation get file.aeon $.view[0] id source
+aeon-edit node-attr-annotation set file.aeon $.view[0] id source '"ui"'
+aeon-edit node-attr-annotation delete file.aeon $.view[0] id source
 aeon-edit export-aes file.aeon
 aeon-edit export-telex file.aeon
 aeon-edit export-telex file.aeon --include-headers --out file.telex.aes

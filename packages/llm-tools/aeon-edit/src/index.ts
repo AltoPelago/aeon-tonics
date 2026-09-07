@@ -30,7 +30,7 @@ import { compactAeon, type CompactCommentMode } from '../../../export/compactor/
 import { convertAeonMode, type AeonModeConversionTarget } from '../../../export/mode-converter/dist/index.js';
 import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
 import type { AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
-import { exportTelex } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import { exportTelex, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 
 export interface AeonEditOptions {
   readonly maxAttributeDepth?: number;
@@ -153,7 +153,12 @@ export function parseAeonEditPath(input: string): readonly TitonicPathSegment[] 
   while (index < input.length) {
     const char = input[index];
     if (char === '.') {
-      const parsed = parseMember(input, index + 1);
+      const parsed = input[index + 1] === '['
+        ? parseBracket(input, index + 1)
+        : parseMember(input, index + 1);
+      if (typeof parsed.value === 'number') {
+        throw new Error(`Member path segments cannot be numeric: ${input}`);
+      }
       segments.push(parsed.value === 'children' ? TITONIC_CHILDREN : parsed.value);
       index = parsed.next;
       continue;
@@ -182,13 +187,13 @@ export function getAeonEditValue(source: string, path: string): AeonEditResult {
     ok: true,
     command: 'get',
     path,
-    value: getTitonicValue(document, parseAeonEditPath(path)),
+    value: getTitonicValue(document, resolveAeonEditValuePath(document, path)),
   };
 }
 
 export function setAeonEditValue(source: string, path: string, valueSnippet: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  setTitonicValue(document, parseAeonEditPath(path), parseAeonValueSnippet(valueSnippet));
+  setTitonicValue(document, resolveAeonEditMutationPath(document, path), parseAeonValueSnippet(valueSnippet));
   return {
     ok: true,
     command: 'set',
@@ -203,7 +208,7 @@ export function setAeonEditValue(source: string, path: string, valueSnippet: str
 
 export function deleteAeonEditValue(source: string, path: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  const changed = deleteTitonicValue(document, parseAeonEditPath(path));
+  const changed = deleteTitonicValue(document, resolveAeonEditValuePath(document, path));
   return {
     ok: true,
     command: 'delete',
@@ -218,7 +223,7 @@ export function deleteAeonEditValue(source: string, path: string): AeonEditResul
 
 export function appendAeonEditValue(source: string, path: string, valueSnippet: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  const list = getTitonicValue(document, parseAeonEditPath(path));
+  const list = getTitonicValue(document, resolveAeonEditValuePath(document, path));
   if (!Array.isArray(list)) {
     throw new Error(`Append target must be a list: ${path}`);
   }
@@ -242,7 +247,8 @@ export function insertAeonEditValue(source: string, path: string, valueSnippet: 
   if (typeof leaf !== 'number') {
     throw new Error(`Insert path must end with a list index: ${path}`);
   }
-  const parent = getTitonicValue(document, parsedPath.slice(0, -1));
+  const parentPath = parentPortablePath(path);
+  const parent = getTitonicValue(document, resolveAeonEditValuePath(document, parentPath));
   if (!Array.isArray(parent)) {
     throw new Error(`Insert parent must be a list: ${path}`);
   }
@@ -321,17 +327,18 @@ export function convertAeonEditMode(source: string, target: AeonModeConversionTa
 
 export function inspectAeonEditPath(source: string, path: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  const parsedPath = parseAeonEditPath(path);
-  const value = getTitonicValue(document, parsedPath);
-  const event = exportTitonicAes(document).find((candidate) => formatAesPath(candidate.path.segments) === path);
-  const attributes = summarizeAttributes(getTitonicAttributes(document, parsedPath));
+  const target = resolveAeonEditAddress(document, path);
+  const value = getTitonicValue(document, target.titonicPath);
+  const event = projectPortableEvents(exportTitonicAes(document)).find((candidate) => candidate.path === path);
+  const attributes = target.kind === 'node-head'
+    ? summarizeAttributes(getTitonicNodeAttributes(value as TitonicElement))
+    : summarizeAttributes(getTitonicAttributes(document, target.titonicPath));
   const inspection: AeonEditInspection = {
     path,
-    kind: kindOfTitonicValue(value),
+    kind: target.kind === 'node-head' ? 'node-head' : kindOfTitonicValue(value),
     ...(event?.datatype === undefined ? {} : { datatype: event.datatype }),
     attributes,
-    ...(isTitonicElement(value) ? { nodeAttributes: summarizeAttributes(getTitonicNodeAttributes(value)) } : {}),
-    children: childPathsForValue(value, path),
+    children: childPathsForAddress(value, path, target.kind),
   };
   return {
     ok: true,
@@ -343,9 +350,9 @@ export function inspectAeonEditPath(source: string, path: string): AeonEditResul
 
 export function listAeonEditPaths(source: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  const datatypes = new Map(exportTitonicAes(document).map((event) => [formatAesPath(event.path.segments), event.datatype]));
+  const datatypes = new Map(projectPortableEvents(exportTitonicAes(document)).map((event) => [event.path, event.datatype]));
   const entries: AeonEditListEntry[] = [];
-  walkTitonicValue(document, '$', entries, datatypes, document);
+  walkTitonicValue(document, '$', [], entries, datatypes, document);
   return {
     ok: true,
     command: 'list',
@@ -385,7 +392,7 @@ export function preflightAeonEditBatch(source: string, operations: readonly Aeon
 
 export function planAeonEditSet(source: string, path: string, valueSnippet: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  const current = getTitonicValue(document, parseAeonEditPath(path));
+  const current = getTitonicValue(document, resolveAeonEditValuePath(document, path));
   return {
     ok: true,
     command: 'plan-set',
@@ -405,7 +412,7 @@ export function planAeonEditSet(source: string, path: string, valueSnippet: stri
 
 export function planAeonEditAttributeSet(source: string, path: string, key: string, valueSnippet: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  const attribute = getTitonicAttribute(document, parseAeonEditPath(path), key);
+  const attribute = getTitonicAttribute(document, resolveAeonEditValuePath(document, path), key);
   if (!attribute) {
     throw new Error(`Binding attribute does not exist: ${key}`);
   }
@@ -462,7 +469,7 @@ export function planAeonEditAttributeAnnotationSet(
   valueSnippet: string,
 ): AeonEditResult {
   const document = loadAeonDocument(source);
-  const attribute = getTitonicAttribute(document, parseAeonEditPath(path), key);
+  const attribute = getTitonicAttribute(document, resolveAeonEditValuePath(document, path), key);
   if (!attribute) {
     throw new Error(`Binding attribute does not exist: ${key}`);
   }
@@ -538,13 +545,13 @@ export function getAeonEditAttribute(source: string, path: string, key: string):
     command: 'attr get',
     path,
     key,
-    value: getTitonicAttribute(document, parseAeonEditPath(path), key),
+    value: getTitonicAttribute(document, resolveAeonEditValuePath(document, path), key),
   };
 }
 
 export function setAeonEditAttribute(source: string, path: string, key: string, valueSnippet: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  setTitonicAttribute(document, parseAeonEditPath(path), key, parseAeonValueSnippet(valueSnippet));
+  setTitonicAttribute(document, resolveAeonEditValuePath(document, path), key, parseAeonValueSnippet(valueSnippet));
   return {
     ok: true,
     command: 'attr set',
@@ -560,7 +567,7 @@ export function setAeonEditAttribute(source: string, path: string, key: string, 
 
 export function deleteAeonEditAttribute(source: string, path: string, key: string): AeonEditResult {
   const document = loadAeonDocument(source);
-  const changed = deleteTitonicAttribute(document, parseAeonEditPath(path), key);
+  const changed = deleteTitonicAttribute(document, resolveAeonEditValuePath(document, path), key);
   return {
     ok: true,
     command: 'attr delete',
@@ -587,7 +594,7 @@ export function getAeonEditAttributeAnnotation(
     path,
     key,
     annotationKey,
-    value: getTitonicAttributeAnnotation(document, parseAeonEditPath(path), key, annotationKey),
+    value: getTitonicAttributeAnnotation(document, resolveAeonEditValuePath(document, path), key, annotationKey),
   };
 }
 
@@ -599,7 +606,7 @@ export function setAeonEditAttributeAnnotation(
   valueSnippet: string,
 ): AeonEditResult {
   const document = loadAeonDocument(source);
-  setTitonicAttributeAnnotation(document, parseAeonEditPath(path), key, annotationKey, parseAeonValueSnippet(valueSnippet));
+  setTitonicAttributeAnnotation(document, resolveAeonEditValuePath(document, path), key, annotationKey, parseAeonValueSnippet(valueSnippet));
   return {
     ok: true,
     command: 'attr-annotation set',
@@ -621,7 +628,7 @@ export function deleteAeonEditAttributeAnnotation(
   annotationKey: string,
 ): AeonEditResult {
   const document = loadAeonDocument(source);
-  const changed = deleteTitonicAttributeAnnotation(document, parseAeonEditPath(path), key, annotationKey);
+  const changed = deleteTitonicAttributeAnnotation(document, resolveAeonEditValuePath(document, path), key, annotationKey);
   return {
     ok: true,
     command: 'attr-annotation delete',
@@ -748,9 +755,13 @@ export function deleteAeonEditNodeAttributeAnnotation(
 }
 
 function getAeonEditElementAtPath(document: TitonicObject, path: string): TitonicElement {
-  const value = getTitonicValue(document, parseAeonEditPath(path));
+  const target = resolveAeonEditAddress(document, path);
+  if (target.kind !== 'node-head') {
+    throw new Error(`Node-head metadata requires a NodeHead event path such as "${path}[0]": ${path}`);
+  }
+  const value = getTitonicValue(document, target.titonicPath);
   if (!isTitonicElement(value)) {
-    throw new Error(`Path must resolve to a node element: ${path}`);
+    throw new Error(`Path must resolve to a NodeHead event: ${path}`);
   }
   return value;
 }
@@ -792,7 +803,7 @@ function preflightAeonEditBatchOperation(
       if (typeof parsedPath[parsedPath.length - 1] !== 'number') {
         return [batchDiagnostic('error', 'INSERT_PATH_NOT_INDEX', index, operation, `Insert path must end with a list index: ${operation.path}`)];
       }
-      const value = readParsedPathValue(document, parsedPath.slice(0, -1));
+      const value = readPathValue(document, parentPortablePath(operation.path));
       if (!value.exists) {
         return [batchDiagnostic('error', 'PATH_NOT_FOUND', index, operation, `Insert parent does not exist: ${operation.path}`)];
       }
@@ -823,7 +834,7 @@ function preflightBindingAttributeOperation(
   if (!pathExists(document, operation.path)) {
     return [batchDiagnostic('error', 'PATH_NOT_FOUND', index, operation, `Path does not exist: ${operation.path}`)];
   }
-  const attributes = getTitonicAttributes(document, parseAeonEditPath(operation.path));
+  const attributes = getTitonicAttributes(document, resolveAeonEditValuePath(document, operation.path));
   const attribute = attributes?.get(operation.key);
   const attributeGuardDiagnostics = preflightAttributeExpectation(attribute, operation, index);
   if (attributeGuardDiagnostics.length > 0) {
@@ -859,14 +870,18 @@ function preflightNodeAttributeOperation(
   operation: Extract<AeonEditBatchOperation, { readonly command: 'node-attr.set' | 'node-attr.delete' | 'node-attr-annotation.set' | 'node-attr-annotation.delete' }>,
   index: number,
 ): readonly AeonEditBatchDiagnostic[] {
-  const value = readPathValue(document, operation.path);
-  if (!value.exists) {
+  const target = tryResolveAeonEditAddress(document, operation.path);
+  if (target === undefined) {
     return [batchDiagnostic('error', 'PATH_NOT_FOUND', index, operation, `Path does not exist: ${operation.path}`)];
   }
-  if (!isTitonicElement(value.value)) {
-    return [batchDiagnostic('error', 'TARGET_NOT_NODE', index, operation, `Path does not resolve to a node element: ${operation.path}`)];
+  if (target.kind !== 'node-head') {
+    return [batchDiagnostic('error', 'TARGET_NOT_NODE', index, operation, `Node metadata operations require a NodeHead event path: ${operation.path}`)];
   }
-  const attribute = getTitonicNodeAttribute(value.value, operation.key);
+  const value = getTitonicValue(document, target.titonicPath);
+  if (!isTitonicElement(value)) {
+    return [batchDiagnostic('error', 'TARGET_NOT_NODE', index, operation, `Path does not resolve to a NodeHead event: ${operation.path}`)];
+  }
+  const attribute = getTitonicNodeAttribute(value, operation.key);
   const attributeGuardDiagnostics = preflightAttributeExpectation(attribute, operation, index);
   if (attributeGuardDiagnostics.length > 0) {
     return attributeGuardDiagnostics;
@@ -963,7 +978,9 @@ function pathExists(document: TitonicObject, path: string): boolean {
 }
 
 function readPathValue(document: TitonicObject, path: string): { readonly exists: true; readonly value: TitonicValue } | { readonly exists: false } {
-  return readParsedPathValue(document, parseAeonEditPath(path));
+  const target = tryResolveAeonEditAddress(document, path);
+  if (target === undefined || target.kind !== 'value') return { exists: false };
+  return readParsedPathValue(document, target.titonicPath);
 }
 
 function readParsedPathValue(
@@ -987,15 +1004,15 @@ function applyAeonEditBatchOperation(
 ): AeonEditBatchOperationResult {
   switch (operation.command) {
     case 'set':
-      setTitonicValue(document, parseAeonEditPath(operation.path), parseAeonValueSnippet(operation.value));
+      setTitonicValue(document, resolveAeonEditMutationPath(document, operation.path), parseAeonValueSnippet(operation.value));
       return batchOperationResult(index, operation, true);
     case 'delete':
       if (!pathExists(document, operation.path)) {
         return batchOperationResult(index, operation, false);
       }
-      return batchOperationResult(index, operation, deleteTitonicValue(document, parseAeonEditPath(operation.path)));
+      return batchOperationResult(index, operation, deleteTitonicValue(document, resolveAeonEditValuePath(document, operation.path)));
     case 'append': {
-      const list = getTitonicValue(document, parseAeonEditPath(operation.path));
+      const list = getTitonicValue(document, resolveAeonEditValuePath(document, operation.path));
       if (!Array.isArray(list)) {
         throw new Error(`Batch operation ${index} append target must be a list: ${operation.path}`);
       }
@@ -1008,7 +1025,7 @@ function applyAeonEditBatchOperation(
       if (typeof leaf !== 'number') {
         throw new Error(`Batch operation ${index} insert path must end with a list index: ${operation.path}`);
       }
-      const parent = getTitonicValue(document, parsedPath.slice(0, -1));
+      const parent = getTitonicValue(document, resolveAeonEditValuePath(document, parentPortablePath(operation.path)));
       if (!Array.isArray(parent)) {
         throw new Error(`Batch operation ${index} insert parent must be a list: ${operation.path}`);
       }
@@ -1016,30 +1033,30 @@ function applyAeonEditBatchOperation(
       return batchOperationResult(index, operation, true);
     }
     case 'attr.set':
-      setTitonicAttribute(document, parseAeonEditPath(operation.path), operation.key, parseAeonValueSnippet(operation.value));
+      setTitonicAttribute(document, resolveAeonEditValuePath(document, operation.path), operation.key, parseAeonValueSnippet(operation.value));
       return batchOperationResult(index, operation, true);
     case 'attr.delete':
-      if (!getTitonicAttributes(document, parseAeonEditPath(operation.path))?.has(operation.key)) {
+      if (!getTitonicAttributes(document, resolveAeonEditValuePath(document, operation.path))?.has(operation.key)) {
         return batchOperationResult(index, operation, false);
       }
-      return batchOperationResult(index, operation, deleteTitonicAttribute(document, parseAeonEditPath(operation.path), operation.key));
+      return batchOperationResult(index, operation, deleteTitonicAttribute(document, resolveAeonEditValuePath(document, operation.path), operation.key));
     case 'attr-annotation.set':
       setTitonicAttributeAnnotation(
         document,
-        parseAeonEditPath(operation.path),
+        resolveAeonEditValuePath(document, operation.path),
         operation.key,
         operation.annotationKey,
         parseAeonValueSnippet(operation.value),
       );
       return batchOperationResult(index, operation, true);
     case 'attr-annotation.delete':
-      if (!getTitonicAttributeAnnotation(document, parseAeonEditPath(operation.path), operation.key, operation.annotationKey)) {
+      if (!getTitonicAttributeAnnotation(document, resolveAeonEditValuePath(document, operation.path), operation.key, operation.annotationKey)) {
         return batchOperationResult(index, operation, false);
       }
       return batchOperationResult(
         index,
         operation,
-        deleteTitonicAttributeAnnotation(document, parseAeonEditPath(operation.path), operation.key, operation.annotationKey),
+        deleteTitonicAttributeAnnotation(document, resolveAeonEditValuePath(document, operation.path), operation.key, operation.annotationKey),
       );
     case 'node-attr.set':
       setTitonicNodeAttribute(getAeonEditElementAtPath(document, operation.path), operation.key, parseAeonValueSnippet(operation.value));
@@ -1088,15 +1105,119 @@ function batchOperationResult(
   };
 }
 
+interface AeonEditAddressTarget {
+  readonly kind: 'value' | 'node-head';
+  readonly titonicPath: readonly TitonicPathSegment[];
+}
+
+function resolveAeonEditAddress(document: TitonicObject, path: string): AeonEditAddressTarget {
+  const target = buildAeonEditAddressIndex(document).get(path);
+  if (target === undefined) {
+    throw new Error(`Portable AES event path does not exist: ${path}`);
+  }
+  return target;
+}
+
+function tryResolveAeonEditAddress(document: TitonicObject, path: string): AeonEditAddressTarget | undefined {
+  return buildAeonEditAddressIndex(document).get(path);
+}
+
+function resolveAeonEditValuePath(document: TitonicObject, path: string): readonly TitonicPathSegment[] {
+  const target = resolveAeonEditAddress(document, path);
+  if (target.kind === 'node-head') {
+    throw new Error(`NodeHead event paths require a node-head metadata operation: ${path}`);
+  }
+  return target.titonicPath;
+}
+
+function resolveAeonEditMutationPath(document: TitonicObject, path: string): readonly TitonicPathSegment[] {
+  const target = tryResolveAeonEditAddress(document, path);
+  if (target !== undefined) {
+    if (target.kind === 'node-head') {
+      throw new Error(`NodeHead event paths require a node-head metadata operation: ${path}`);
+    }
+    return target.titonicPath;
+  }
+
+  const segments = parseAeonEditPath(path);
+  if (segments.length === 0) throw new Error('The implicit root cannot be replaced by path.');
+  const leaf = segments[segments.length - 1]!;
+  if (typeof leaf === 'object') throw new Error(`Attribute paths require metadata operations: ${path}`);
+  const parent = resolveAeonEditAddress(document, formatPortableEditPath(segments.slice(0, -1)));
+  if (parent.kind === 'node-head') {
+    if (typeof leaf !== 'number') throw new Error(`NodeHead content positions must be indexed: ${path}`);
+    return [...parent.titonicPath, TITONIC_CHILDREN, leaf];
+  }
+  return [...parent.titonicPath, leaf];
+}
+
+function buildAeonEditAddressIndex(document: TitonicObject): ReadonlyMap<string, AeonEditAddressTarget> {
+  const index = new Map<string, AeonEditAddressTarget>();
+  const seen = new WeakSet<object>();
+
+  const visit = (value: TitonicValue, portablePath: string, titonicPath: readonly TitonicPathSegment[]): void => {
+    index.set(portablePath, { kind: 'value', titonicPath });
+    if (!value || typeof value !== 'object' || seen.has(value)) return;
+    seen.add(value);
+
+    if (isTitonicElement(value)) {
+      const headPath = `${portablePath}[0]`;
+      index.set(headPath, { kind: 'node-head', titonicPath });
+      value.children.forEach((child, childIndex) => {
+        visit(child, `${headPath}[${childIndex}]`, [...titonicPath, TITONIC_CHILDREN, childIndex]);
+      });
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((child, childIndex) => {
+        visit(child, `${portablePath}[${childIndex}]`, [...titonicPath, childIndex]);
+      });
+      return;
+    }
+    if (isTitonicNativeScalar(value)) return;
+    for (const key of Object.keys(value)) {
+      visit((value as TitonicObject)[key]!, appendPathMember(portablePath, key), [...titonicPath, key]);
+    }
+  };
+
+  visit(document, '$', []);
+  return index;
+}
+
+function parentPortablePath(path: string): string {
+  const segments = parseAeonEditPath(path);
+  if (segments.length === 0 || typeof segments[segments.length - 1] !== 'number') {
+    throw new Error(`Insert path must end with a list index: ${path}`);
+  }
+  const bracket = path.lastIndexOf('[');
+  if (bracket <= 0) throw new Error(`Could not determine insert parent path: ${path}`);
+  return path.slice(0, bracket);
+}
+
+function formatPortableEditPath(segments: readonly TitonicPathSegment[]): string {
+  let path = '$';
+  for (const segment of segments) {
+    if (typeof segment === 'number') {
+      path += `[${segment}]`;
+    } else if (typeof segment === 'string') {
+      path = appendPathMember(path, segment);
+    } else {
+      throw new Error('Legacy Titonic child markers are not portable AES path segments.');
+    }
+  }
+  return path;
+}
+
 function walkTitonicValue(
   value: TitonicValue,
   path: string,
+  titonicPath: readonly TitonicPathSegment[],
   entries: AeonEditListEntry[],
   datatypes: ReadonlyMap<string, string | undefined>,
   document: TitonicObject,
   seen: WeakSet<object> = new WeakSet(),
 ): void {
-  const attributes = path === '$' ? [] : summarizeAttributes(getTitonicAttributes(document, parseAeonEditPath(path))).map((item) => item.key);
+  const attributes = path === '$' ? [] : summarizeAttributes(getTitonicAttributes(document, titonicPath)).map((item) => item.key);
   const kind = kindOfTitonicValue(value);
   const datatype = datatypes.get(path);
   entries.push({
@@ -1104,7 +1225,6 @@ function walkTitonicValue(
     kind,
     ...(datatype === undefined ? {} : { datatype }),
     attributes,
-    ...(isTitonicElement(value) ? { nodeAttributes: summarizeAttributes(getTitonicNodeAttributes(value)).map((item) => item.key) } : {}),
   });
 
   if (!value || typeof value !== 'object') {
@@ -1116,15 +1236,24 @@ function walkTitonicValue(
   seen.add(value);
 
   if (isTitonicElement(value)) {
+    const headPath = `${path}[0]`;
+    const headDatatype = datatypes.get(headPath);
+    entries.push({
+      path: headPath,
+      kind: 'node-head',
+      ...(headDatatype === undefined ? {} : { datatype: headDatatype }),
+      attributes: [],
+      nodeAttributes: summarizeAttributes(getTitonicNodeAttributes(value)).map((item) => item.key),
+    });
     value.children.forEach((child, index) => {
-      walkTitonicValue(child, `${path}.children[${index}]`, entries, datatypes, document, seen);
+      walkTitonicValue(child, `${headPath}[${index}]`, [...titonicPath, TITONIC_CHILDREN, index], entries, datatypes, document, seen);
     });
     return;
   }
 
   if (Array.isArray(value)) {
     value.forEach((child, index) => {
-      walkTitonicValue(child, `${path}[${index}]`, entries, datatypes, document, seen);
+      walkTitonicValue(child, `${path}[${index}]`, [...titonicPath, index], entries, datatypes, document, seen);
     });
     return;
   }
@@ -1135,13 +1264,16 @@ function walkTitonicValue(
 
   const objectValue = value as TitonicObject;
   for (const key of Object.keys(objectValue)) {
-    walkTitonicValue(objectValue[key]!, appendPathMember(path, key), entries, datatypes, document, seen);
+    walkTitonicValue(objectValue[key]!, appendPathMember(path, key), [...titonicPath, key], entries, datatypes, document, seen);
   }
 }
 
-function childPathsForValue(value: TitonicValue, path: string): readonly string[] {
-  if (isTitonicElement(value)) {
-    return value.children.map((_child, index) => `${path}.children[${index}]`);
+function childPathsForAddress(value: TitonicValue, path: string, kind: AeonEditAddressTarget['kind']): readonly string[] {
+  if (kind === 'value' && isTitonicElement(value)) {
+    return [`${path}[0]`];
+  }
+  if (kind === 'node-head' && isTitonicElement(value)) {
+    return value.children.map((_child, index) => `${path}[${index}]`);
   }
   if (Array.isArray(value)) {
     return value.map((_child, index) => `${path}[${index}]`);
@@ -1190,24 +1322,7 @@ function appendPathMember(path: string, key: string): string {
   if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
     return `${path}.${key}`;
   }
-  return `${path}[${JSON.stringify(key)}]`;
-}
-
-function formatAesPath(segments: readonly ({ readonly type: string; readonly key?: string; readonly index?: number })[]): string {
-  let path = '$';
-  for (const segment of segments) {
-    if (segment.type === 'root') {
-      continue;
-    }
-    if (segment.type === 'member' && segment.key !== undefined) {
-      path = appendPathMember(path, segment.key);
-      continue;
-    }
-    if (segment.type === 'index' && segment.index !== undefined) {
-      path = `${path}[${segment.index}]`;
-    }
-  }
-  return path;
+  return `${path}.[${JSON.stringify(key)}]`;
 }
 
 function parseAeonValueSnippet(snippet: string): TitonicValue {

@@ -25,8 +25,11 @@ aeon-search repo/ --path-prefix '$.app' --format paths --out app-paths.txt
 aeon-search --examples
 ```
 
-The first implementation recursively discovers `.aeon` files, compiles them to AES, and searches by
-canonical path, value, datatype, and broad value kind. Use `--format paths` or `--paths` to emit a
+The implementation recursively discovers `.aeon` files, compiles them to AES,
+and searches portable occurrence paths, values, datatypes, and broad value
+kinds. Node results include the explicit `NodeHead` level (`$.view[0]`) and
+content beneath it (`$.view[0][0]`); diagnostic path fields use the same
+address space. Use `--format paths` or `--paths` to emit a
 unique sorted path list that can be written directly to files for downstream tools like
 `aeon-lint --pointer-under-file ...` or `aeon-lint --clone-into-file ...`. Use `--out <file>` when
 you want the CLI to materialize that list itself instead of relying on shell redirection.

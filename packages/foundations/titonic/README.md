@@ -179,6 +179,12 @@ Node children can be addressed in those path APIs with the explicit `TITONIC_CHI
 example `['view', TITONIC_CHILDREN, 0]`. This keeps child traversal unambiguous instead of
 overloading a plain string key like `"children"`.
 
+That array form is an explicitly Titonic-internal mutation path. Public SANSA
+navigation through `resolveTitonicAddress(...)` uses portable AES occurrence
+paths: `$.view` is the `NodeLiteral`, `$.view[0]` is its `NodeHead`, and
+`$.view[0][0]` is its first child. Resolved bindings expose this address as
+`portablePath`/`pathText` and retain the internal array as `titonicPath`.
+
 For a more ergonomic path-oriented workflow, use `titonicAt(...)`:
 
 ```ts

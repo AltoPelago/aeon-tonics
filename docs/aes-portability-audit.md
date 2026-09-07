@@ -43,18 +43,19 @@ payload is AES should identify and sign the exact Telex or Film bytes used.
 Portable event paths and edit-model paths are related but are not identical
 namespaces:
 
-| Occurrence | Portable AES path | Current `aeon-edit` owner path |
+| Occurrence | Portable AES path | `aeon-edit` address |
 | --- | --- | --- |
 | Node binding | `$.a` | `$.a` |
-| Node head | `$.a[0]` | `$.a` with a `node-attr` operation |
-| First node child | `$.a[0][0]` | `$.a.children[0]` |
+| Node head | `$.a[0]` | `$.a[0]` with a `node-attr` operation |
+| First node child | `$.a[0][0]` | `$.a[0][0]` |
 | Binding attribute `x` | `$.a.@.x` | `$.a` plus attribute key `x` |
-| Node-head attribute `x` | `$.a[0].@.x` | `$.a` plus node-attribute key `x` |
+| Node-head attribute `x` | `$.a[0].@.x` | `$.a[0]` plus node-attribute key `x` |
 
-The edit CLI paths are application-facing Titonic addresses. Export to Telex is
-the explicit translation boundary. Structural identity remains the `identity`
-field of the corresponding portable event and never becomes part of either
-path.
+The edit CLI, graph, search, and Titonic SANSA navigation surfaces expose
+portable event paths. Titonic retains its `TITONIC_CHILDREN` segment only as an
+explicit internal mutation path, available as `titonicPath` on a resolved
+binding. Structural identity remains the `identity` field of the corresponding
+portable event and never becomes part of path identity.
 
 References in portable records use portable event paths. Legacy in-process
 references retain their native parser representation until exported.

@@ -66,6 +66,28 @@ test('graphAesEvents renders reference attribute targets with explicit attribute
   assert.equal(graph.edges.some((edge) => edge.to.includes('base@')), false);
 });
 
+test('graphAesEvents exposes the portable node-head hierarchy and translated references', () => {
+  const compiled = compile([
+    'view:node = <panel:node(<label:node("hello")>)>',
+    'copy = ~view[0]',
+  ].join('\n'), { maxAttributeDepth: 2 });
+  assert.equal(compiled.errors.length, 0);
+
+  const graph = graphAesEvents(compiled.events, { file: 'doc.aeon' });
+
+  assert.deepEqual(graph.nodes.map((node) => node.path), [
+    '$.view',
+    '$.view[0]',
+    '$.view[0][0]',
+    '$.view[0][0][0]',
+    '$.view[0][0][0][0]',
+    '$.copy',
+  ]);
+  assert.equal(graph.nodes.find((node) => node.path === '$.view[0]')?.kind, 'node-head');
+  assert.equal(graph.edges.some((edge) => edge.from === '$.view' && edge.to === '$.view[0]' && edge.kind === 'contains'), true);
+  assert.equal(graph.edges.some((edge) => edge.from === '$.copy' && edge.to === '$.view[0][0]' && edge.kind === 'clone'), true);
+});
+
 test('graphAeonFiles discovers files and filters incoming references', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-graph-'));
   const nested = join(dir, 'nested');
@@ -197,6 +219,16 @@ test('graphAeonFiles reports compile diagnostics', async () => {
   assert.equal(graph.nodes.length, 0);
   assert.equal(graph.edges.length, 0);
   assert.equal(graph.diagnostics.length > 0, true);
+});
+
+test('graphAeonFiles emits portable paths for diagnostics inside node content', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-graph-'));
+  await writeFile(join(dir, 'broken.aeon'), 'view:node = <panel:node(~missing)>', 'utf8');
+
+  const graph = await graphAeonFiles([dir]);
+
+  assert.equal(graph.diagnostics[0]?.path, '$.view[0][0]');
+  assert.equal(graph.diagnostics[0]?.targetPath, '$.missing');
 });
 
 test('formatAeonGraphText renders compact graph output', () => {

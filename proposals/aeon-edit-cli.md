@@ -117,9 +117,9 @@ aeon-edit attr-annotation delete file.aeon $.server port source
 Node head attributes should use explicit node commands so the boundary stays clear:
 
 ```sh
-aeon-edit node-attr get file.aeon $.view theme
-aeon-edit node-attr set file.aeon $.view theme '"compact"'
-aeon-edit node-attr delete file.aeon $.view theme
+aeon-edit node-attr get file.aeon $.view[0] theme
+aeon-edit node-attr set file.aeon $.view[0] theme '"compact"'
+aeon-edit node-attr delete file.aeon $.view[0] theme
 ```
 
 ### Import And Export
@@ -174,12 +174,14 @@ Initial syntax:
 - `$.items[0]`
 - `$."quoted key"`
 
-Node children should use an explicit `children` segment in the normal path syntax because Titonic
-uses `TITONIC_CHILDREN` internally to avoid confusing node children with ordinary object keys.
+Public paths use the portable AES node hierarchy. Titonic continues to use
+`TITONIC_CHILDREN` internally, but that implementation marker is not part of a
+CLI address.
 
 CLI syntax should initially follow the existing path style:
 
-- `$.view.children[0]`
+- `$.view[0]` (node head)
+- `$.view[0][0]` (first node child)
 
 Internally this maps to:
 
@@ -187,9 +189,8 @@ Internally this maps to:
 ['view', TITONIC_CHILDREN, 0]
 ```
 
-An alternate spelling such as `$.view::children[0]` is not needed for phase 1. It would only become
-useful if the CLI must distinguish between a node child axis and a literal object property named
-`children` in a context where both are addressable through the same path surface.
+The explicit `NodeHead` level distinguishes the node's head from its content;
+an outer `$.view` node path is therefore not accepted by `node-attr` commands.
 
 ## Output Modes
 
@@ -304,7 +305,7 @@ Phase 1 should implement:
 - `--out`
 - `--write`
 - path parsing for properties and list indexes
-- node child addressing through `$.node.children[index]`
+- node child addressing through portable `$.node[0][index]` paths
 - AEON snippet parsing for values
 
 Phase 1 can defer:
@@ -415,7 +416,7 @@ Settled for phase 1:
 
 - `set` values should be AEON snippets, not JSON values.
 - the CLI should live as tonic/tooling, not inside the core AEON TypeScript implementation.
-- node children should use `$.node.children[0]` because that matches the current addressing style.
+- node children use `$.node[0][0]`, preserving the portable node-head level.
 - canonical AEON should be considered as an output/check mode, not as the primary edit substrate.
 
 Remaining questions:

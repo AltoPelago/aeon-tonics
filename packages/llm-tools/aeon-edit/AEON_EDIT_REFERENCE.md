@@ -56,8 +56,9 @@ node-head attributes when the path is a node, and directly editable child paths.
 aeon-edit list file.aeon
 ```
 
-Lists reusable edit paths for the document. Node children are emitted as `.children[index]` paths so
-they can be passed back into `get`, `set`, `inspect`, or metadata commands.
+Lists reusable portable event paths for the document. Node heads and children
+are emitted as `[0]` and `[0][index]`, so they can be passed back into `get`,
+`set`, `inspect`, or metadata commands.
 
 ### `plan-set`
 
@@ -79,7 +80,7 @@ Emits a guarded binding attribute update using the current attribute value as `e
 ### `plan-node-attr-set`
 
 ```sh
-aeon-edit plan-node-attr-set file.aeon $.view id '"main"'
+aeon-edit plan-node-attr-set file.aeon $.view[0] id '"main"'
 ```
 
 Emits a guarded node-head attribute update using the current node attribute value as
@@ -97,7 +98,7 @@ as `expectAttribute` and current nested annotation value as `expectAnnotation`.
 ### `plan-node-attr-annotation-set`
 
 ```sh
-aeon-edit plan-node-attr-annotation-set file.aeon $.view id source '"ui"'
+aeon-edit plan-node-attr-annotation-set file.aeon $.view[0] id source '"ui"'
 ```
 
 Emits a guarded nested node-head attribute annotation update using the current parent node attribute
@@ -151,7 +152,7 @@ array or an object with an `operations` array:
     { "command": "set", "path": "$.app.count", "value": "2" },
     { "command": "append", "path": "$.items", "value": "3" },
     { "command": "attr.set", "path": "$.app", "key": "owner", "value": "\"tools\"" },
-    { "command": "node-attr.set", "path": "$.view", "key": "id", "value": "\"main\"" }
+    { "command": "node-attr.set", "path": "$.view[0]", "key": "id", "value": "\"main\"" }
   ]
 }
 ```
@@ -293,7 +294,7 @@ Deletes a nested binding attribute annotation.
 ### `node-attr get`
 
 ```sh
-aeon-edit node-attr get file.aeon $.view id
+aeon-edit node-attr get file.aeon $.view[0] id
 ```
 
 Reads a node-head attribute entry from the node element at a path.
@@ -301,7 +302,7 @@ Reads a node-head attribute entry from the node element at a path.
 ### `node-attr set`
 
 ```sh
-aeon-edit node-attr set file.aeon $.view id '"main"'
+aeon-edit node-attr set file.aeon $.view[0] id '"main"'
 ```
 
 Sets a node-head attribute from an AEON snippet.
@@ -309,7 +310,7 @@ Sets a node-head attribute from an AEON snippet.
 ### `node-attr delete`
 
 ```sh
-aeon-edit node-attr delete file.aeon $.view id
+aeon-edit node-attr delete file.aeon $.view[0] id
 ```
 
 Deletes a node-head attribute.
@@ -317,7 +318,7 @@ Deletes a node-head attribute.
 ### `node-attr-annotation get`
 
 ```sh
-aeon-edit node-attr-annotation get file.aeon $.view id source
+aeon-edit node-attr-annotation get file.aeon $.view[0] id source
 ```
 
 Reads a nested annotation from a node-head attribute.
@@ -325,7 +326,7 @@ Reads a nested annotation from a node-head attribute.
 ### `node-attr-annotation set`
 
 ```sh
-aeon-edit node-attr-annotation set file.aeon $.view id source '"ui"'
+aeon-edit node-attr-annotation set file.aeon $.view[0] id source '"ui"'
 ```
 
 Sets a nested node-head attribute annotation from an AEON snippet.
@@ -333,7 +334,7 @@ Sets a nested node-head attribute annotation from an AEON snippet.
 ### `node-attr-annotation delete`
 
 ```sh
-aeon-edit node-attr-annotation delete file.aeon $.view id source
+aeon-edit node-attr-annotation delete file.aeon $.view[0] id source
 ```
 
 Deletes a nested node-head attribute annotation.
@@ -345,11 +346,12 @@ Current supported path syntax:
 - `$.name`
 - `$.nested.value`
 - `$.items[0]`
-- `$."quoted key"`
-- `$["quoted key"]`
-- `$.node.children[0]`
+- `$.["quoted key"]`
+- `$.node[0]` for the node head
+- `$.node[0][0]` for its first child
 
-`children` maps to Titonic's internal `TITONIC_CHILDREN` segment for node children.
+Paths use the portable AES event hierarchy. Titonic's `TITONIC_CHILDREN`
+segment remains an internal SDK mutation detail and is not emitted by the CLI.
 
 ## Value Syntax
 

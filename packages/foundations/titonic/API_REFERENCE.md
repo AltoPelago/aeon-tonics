@@ -93,6 +93,12 @@ Example:
 getTitonicValue(doc, ['view', TITONIC_CHILDREN, 0]);
 ```
 
+These low-level mutation paths are distinct from public portable occurrence
+paths. `resolveTitonicAddress(doc, '$.view[0][0]')` resolves the same first
+child through the portable `NodeLiteral -> NodeHead -> content` hierarchy. Its
+binding returns `portablePath` and `pathText`; `titonicPath` is available when a
+caller must pass the result to a low-level Titonic mutation helper.
+
 ## Path-Oriented Binding Attribute CRUD
 
 - `getTitonicAttributes(document, path)`

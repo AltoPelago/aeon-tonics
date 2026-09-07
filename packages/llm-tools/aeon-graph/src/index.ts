@@ -2,9 +2,11 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
   compile,
-  formatPath,
+  createPortableEventPathMap,
+  projectPortableEvents,
   type AssignmentEvent,
   type CompileOptions,
+  type PortableAesEvent,
 } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 
 export interface AeonGraphOptions {
@@ -69,6 +71,8 @@ export interface AeonGraphDiagnostic {
   readonly file: string;
   readonly code: string;
   readonly message: string;
+  readonly path?: string;
+  readonly targetPath?: string;
 }
 
 export async function discoverAeonGraphFiles(inputs: readonly string[]): Promise<readonly string[]> {
@@ -95,11 +99,11 @@ export async function graphAeonFiles(
       ...options.compileOptions,
     });
     if (compiled.errors.length > 0) {
-      diagnostics.push(...compiled.errors.map((error) => ({
-        file,
-        code: errorCode(error),
-        message: error instanceof Error ? error.message : String(error),
-      })));
+      const recovery = compiled.events.length > 0
+        ? compiled
+        : compile(source, { maxAttributeDepth: 2, ...options.compileOptions, recovery: true });
+      const pathMap = createPortableEventPathMap(recovery.events);
+      diagnostics.push(...compiled.errors.map((error) => graphDiagnostic(error, file, pathMap)));
       continue;
     }
     const graph = graphAesEvents(compiled.events, { file });
@@ -121,11 +125,12 @@ export function graphAesEvents(
   options: { readonly file?: string } = {},
 ): Pick<AeonGraphResult, 'nodes' | 'edges'> {
   const file = options.file ?? '';
-  const nodes = events.map((event): AeonGraphNode => {
+  const portable = projectPortableEvents(events);
+  const nodes = portable.map((event): AeonGraphNode => {
     const datatype = typeof event.datatype === 'string' ? event.datatype : undefined;
     return {
       file,
-      path: formatPath(event.path),
+      path: event.path,
       kind: eventKind(event),
       ...(datatype === undefined ? {} : { datatype }),
     };
@@ -144,19 +149,18 @@ export function graphAesEvents(
       };
     })
     .filter((edge): edge is AeonGraphEdge => edge !== undefined);
-  const referenceEdges = events.flatMap((event): AeonGraphEdge[] => {
-    const value = event.value as { readonly type?: unknown; readonly path?: unknown };
-    if (value.type !== 'CloneReference' && value.type !== 'PointerReference') {
+  const referenceEdges = portable.flatMap((event): AeonGraphEdge[] => {
+    if (event.kind !== 'CloneReference' && event.kind !== 'PointerReference') {
       return [];
     }
-    if (!Array.isArray(value.path)) {
+    if (event.value === undefined) {
       return [];
     }
     return [{
       file,
-      from: formatPath(event.path),
-      to: formatReferencePath(value.path),
-      kind: value.type === 'PointerReference' ? 'pointer' : 'clone',
+      from: event.path,
+      to: event.value,
+      kind: event.kind === 'PointerReference' ? 'pointer' : 'clone',
     }];
   });
   return { nodes, edges: [...containmentEdges, ...referenceEdges] };
@@ -173,7 +177,7 @@ export function formatAeonGraphText(result: AeonGraphResult): string {
       node.datatype ? `:${node.datatype}` : '',
     ].join(' ').replace(/\s+/g, ' ').trim()),
     ...result.edges.map((edge) => `edge ${edge.file} ${edge.from} -${edge.kind}-> ${edge.to}`),
-    ...result.diagnostics.map((diagnostic) => `${diagnostic.file} ${diagnostic.code}: ${diagnostic.message}`),
+    ...result.diagnostics.map((diagnostic) => `${diagnostic.file}${diagnostic.path === undefined ? '' : ` ${diagnostic.path}`} ${diagnostic.code}: ${diagnostic.message}`),
   ];
   return `${lines.join('\n')}\n`;
 }
@@ -224,7 +228,7 @@ export function formatAeonGraphSummaryText(summary: AeonGraphSummary): string {
     `AEON graph summary: ${summary.counts.files} files, ${summary.counts.nodes} nodes, ${summary.counts.edges} edges, ${summary.counts.diagnostics} diagnostics`,
     `edges: ${summary.counts.byEdgeKind.contains} contains, ${summary.counts.byEdgeKind.clone} clone, ${summary.counts.byEdgeKind.pointer} pointer`,
     `high risk pointer paths: ${summary.highRisk.pointerPaths.length === 0 ? 'none' : summary.highRisk.pointerPaths.join(', ')}`,
-    ...summary.diagnostics.map((diagnostic) => `${diagnostic.file} ${diagnostic.code}: ${diagnostic.message}`),
+    ...summary.diagnostics.map((diagnostic) => `${diagnostic.file}${diagnostic.path === undefined ? '' : ` ${diagnostic.path}`} ${diagnostic.code}: ${diagnostic.message}`),
   ];
   return `${lines.join('\n')}\n`;
 }
@@ -376,7 +380,7 @@ function dotEdgeAttrs(kind: AeonGraphEdgeKind, theme: AeonGraphDotTheme): Record
 }
 
 function dotDiagnosticAttrs(diagnostic: AeonGraphDiagnostic, theme: AeonGraphDotTheme): Record<string, string> {
-  const label = `${diagnostic.code}: ${diagnostic.message}`;
+  const label = `${diagnostic.path === undefined ? '' : `${diagnostic.path} `}${diagnostic.code}: ${diagnostic.message}`;
   if (theme === 'agent') {
     return { label, shape: 'note', style: 'filled', fillcolor: '#fee2e2', color: '#b91c1c' };
   }
@@ -431,41 +435,45 @@ function parentPath(path: string): string | undefined {
   return dot <= 0 ? undefined : path.slice(0, dot);
 }
 
-function eventKind(event: AssignmentEvent): string {
-  const value = event.value as { readonly type?: unknown };
-  if (value.type === 'NodeLiteral') {
+function eventKind(event: PortableAesEvent): string {
+  if (event.kind === 'NodeLiteral') {
     return 'node';
   }
-  if (value.type === 'CloneReference' || value.type === 'PointerReference') {
+  if (event.kind === 'NodeHead') {
+    return 'node-head';
+  }
+  if (event.kind === 'CloneReference' || event.kind === 'PointerReference') {
     return 'reference';
   }
-  if (typeof value.type === 'string' && value.type.endsWith('Literal')) {
-    return value.type.slice(0, -'Literal'.length).replace(/^[A-Z]/, (letter) => letter.toLowerCase());
+  if (event.kind.endsWith('Literal')) {
+    return event.kind.slice(0, -'Literal'.length).replace(/^[A-Z]/, (letter) => letter.toLowerCase());
   }
-  return typeof value.type === 'string' ? value.type : 'unknown';
+  return event.kind;
 }
 
-function formatReferencePath(path: readonly unknown[]): string {
-  let result = '$';
-  for (const segment of path) {
-    if (typeof segment === 'number') {
-      result += `[${segment}]`;
-      continue;
-    }
-    if (typeof segment === 'string') {
-      result += /^[A-Za-z_][A-Za-z0-9_]*$/.test(segment)
-        ? `.${segment}`
-        : `[${JSON.stringify(segment)}]`;
-      continue;
-    }
-    if (segment && typeof segment === 'object' && 'key' in segment && typeof (segment as { readonly key?: unknown }).key === 'string') {
-      const key = (segment as { readonly key: string }).key;
-      result += /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
-        ? `.@.${key}`
-        : `.@.[${JSON.stringify(key)}]`;
-    }
+function graphDiagnostic(
+  error: unknown,
+  file: string,
+  pathMap: ReadonlyMap<string, string>,
+): AeonGraphDiagnostic {
+  const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  const sourcePath = typeof record.sourcePath === 'string'
+    ? record.sourcePath
+    : typeof record.path === 'string' ? record.path : undefined;
+  const targetPath = typeof record.targetPath === 'string' ? record.targetPath : undefined;
+  const portableSource = sourcePath === undefined ? undefined : (pathMap.get(sourcePath) ?? sourcePath);
+  const portableTarget = targetPath === undefined ? undefined : (pathMap.get(targetPath) ?? targetPath);
+  let message = error instanceof Error ? error.message : String(error);
+  for (const [native, portable] of [[sourcePath, portableSource], [targetPath, portableTarget]] as const) {
+    if (native !== undefined && portable !== undefined && native !== portable) message = message.replaceAll(native, portable);
   }
-  return result;
+  return {
+    file,
+    code: errorCode(error),
+    message,
+    ...(portableSource === undefined ? {} : { path: portableSource }),
+    ...(portableTarget === undefined ? {} : { targetPath: portableTarget }),
+  };
 }
 
 async function collectAeonFiles(path: string, files: string[]): Promise<void> {

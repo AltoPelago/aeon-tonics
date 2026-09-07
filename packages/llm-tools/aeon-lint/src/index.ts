@@ -177,6 +177,7 @@ function diagnosticFinding(diagnostic: AeonGraphDiagnostic): AeonLintFinding {
     rule: 'no-diagnostic',
     file: diagnostic.file,
     message: `${diagnostic.code}: ${diagnostic.message}`,
+    ...(diagnostic.path === undefined ? {} : { path: diagnostic.path }),
   };
 }
 
