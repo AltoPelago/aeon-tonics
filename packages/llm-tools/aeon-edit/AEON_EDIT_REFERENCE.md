@@ -231,7 +231,7 @@ Exports the current document as AES JSON:
 
 This command is retained for compatibility with consumers of the TypeScript
 `AssignmentEvent` shape. The contract discriminator is required; this JSON is
-not portable `aes.events.v0`.
+not portable `aes.events.v1`.
 
 ### `export-telex`
 
@@ -242,7 +242,7 @@ aeon-edit export-telex file.aeon --include-headers --out file.telex.aes
 
 Exports the current document as complete portable AES encoded in Telex.
 Headers are omitted by default. When requested, they use the
-`aeon.document.v0` projection and `header=` records rather than ordinary body
+`aeon.document.v1` projection and `header=` records rather than ordinary body
 paths.
 
 ### `attr get`

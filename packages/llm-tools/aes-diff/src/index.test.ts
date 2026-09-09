@@ -38,7 +38,7 @@ test('portable datatype components are classified as datatype changes', () => {
 
 test('diffTelex rejects incomplete streams under the default complete profile', () => {
   const incomplete = [
-    'telex.aes=0',
+    'telex.aes=1',
     '',
     'path=$.a.b',
     'kind=StringLiteral',

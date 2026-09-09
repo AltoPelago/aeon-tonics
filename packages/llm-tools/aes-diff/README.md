@@ -61,4 +61,4 @@ aes-diff apply --from-telex base.telex.aes patch.json
 Its JSON must be an object with
 `"contract":"aeon.typescript.assignment-events.v0"` and an `events` array;
 raw arrays and untagged event objects are rejected. Use `--from-telex` for
-portable `aes.events.v0` interchange.
+portable `aes.events.v1` interchange.

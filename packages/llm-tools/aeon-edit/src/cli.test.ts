@@ -883,7 +883,7 @@ test('CLI exports Telex and keeps document headers opt-in', async () => {
   ]);
   assert.equal(withHeaders.stdout, `wrote ${output}\n`);
   const documentParsed = parseTelex(await readFile(output, 'utf8'));
-  assert.equal(documentParsed.projection, 'aeon.document.v0');
+  assert.equal(documentParsed.projection, 'aeon.document.v1');
   assert.equal(documentParsed.records.some((record) => record.header === '$.["aeon:mode"]'), true);
 });
 

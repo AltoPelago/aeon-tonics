@@ -148,7 +148,7 @@ test('CLI applies portable patches and emits Telex', async () => {
   await writeFile(patchFile, patchResult.stdout, 'utf8');
   const applied = await execFileAsync(process.execPath, [cliPath, 'apply', '--from-telex', baseFile, patchFile]);
 
-  assert.match(applied.stdout, /^telex\.aes=0$/m);
+  assert.match(applied.stdout, /^telex\.aes=1$/m);
   assert.equal(diffTelex(applied.stdout, afterTelex).changes.length, 0);
 });
 

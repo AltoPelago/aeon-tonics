@@ -73,7 +73,7 @@ semantic datatype descriptor while preserving them as separate fields in patch
 records. This prevents a consumer from reparsing an encoded datatype string.
 
 Body-only Telex is the default. `aeon-edit export-telex --include-headers`
-selects the `aeon.document.v0` projection and emits `header=` records. Header
+selects the `aeon.document.v1` projection and emits `header=` records. Header
 identity is distinct from body path identity and headers participate in diffs
 unless `--no-headers` is selected.
 
