@@ -1,0 +1,23 @@
+{
+  "name": "@aeon-tonics/temporal-reference-resolver",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "!dist/**/*.test.*"
+  ],
+  "scripts": {
+    "build": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json && node --test dist/*.test.js"
+  }
+}

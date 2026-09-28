@@ -72,6 +72,10 @@ The workspace is grouped by intent rather than by publication name:
   Titonic package charter and design boundary.
 - `packages/provenance`
   Provenance and integrity tools such as `@aeon-tonics/signed-ledger`.
+- `packages/temporal`
+  Authority-explicit temporal experiments. The reference resolver separates
+  profile admission, authority assessment, mapping cardinality, candidate
+  selection, and lossy runtime materialization.
 
 The legacy `fmt-md-*` packages have been removed from the active workspace. Historical proposal
 material remains only for migration context.
