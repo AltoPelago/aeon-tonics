@@ -274,3 +274,31 @@ test('body identities and export preserve explicit header/body planes for aeon-p
   assert.deepEqual(reference.path, ['aeon:x', 'leaf']);
   assert.deepEqual(paths(createTitonicFromAeon(exportTitonicAeon(document), { requireStrictMode: false }), '$.\\body\\'), ['$.["aeon:x"]']);
 });
+
+test('identity caller AST cannot inject a selector through filter data', () => {
+ const document=from('target\\target\\:object={leaf\\leaf\\:string="x"}');
+ for(const type of ['semanticTypeFilter','representationKindFilter'] as const) {
+  const base=parseAddressOrThrow('$.\\target\\');
+  const address={...base,selectors:[...base.selectors,{type,name:'object.\\leaf\\'}]};
+  const result=resolveTitonicAddress(document,address);
+  assert.deepEqual(result.bindings,[]);
+  assert.equal(result.diagnostics[0]?.code,'SANSA_RESOLVE_INVALID_ADDRESS');
+ }
+});
+
+test('identity allowance bounds object child enumeration before eager materialization', () => {
+ for(const width of [32,128]) {
+  const events=compile(`aeon:mode="strict"\n${Array.from({length:width},(_,i)=>`k${i}:number=1`).join('\n')}`).events;
+  const document=createTitonicFromAes(events);
+  const entries=Map.prototype.entries;
+  let yielded=0;
+  Map.prototype.entries=function* () {
+   for(const pair of entries.call(this)) { if(this.size===width) yielded++; yield pair; }
+  };
+  try {
+   const result=resolveTitonicAddress(document,'$.\\missing\\',{maxIdentityInspections:1});
+   assert.equal(result.diagnostics[0]?.code,'SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED');
+   assert.equal(yielded,2);
+  } finally {Map.prototype.entries=entries;}
+ }
+});

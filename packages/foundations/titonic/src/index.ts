@@ -1119,7 +1119,7 @@ function resolveTitonicSelector(
       for (const candidate of candidates) {
         const result = resolveAddress(identityAddress, {
           root: candidate,
-          children: (parent) => directTitonicChildren(controller, parent),
+          children: (parent) => iterateTitonicChildren(controller, parent),
           identity: (child) => {
             identityBudget.inspected += 1;
             if (child.occurrence === 'value') return child.node.structuralId;
@@ -1344,45 +1344,51 @@ function directTitonicChildren(
   controller: TitonicController,
   candidate: TitonicResolveCandidate,
 ): readonly TitonicResolveCandidate[] {
+  return [...iterateTitonicChildren(controller, candidate)];
+}
+
+// Identity selection consumes this iterator incrementally under SANSA's budget.
+function* iterateTitonicChildren(
+  controller: TitonicController,
+  candidate: TitonicResolveCandidate,
+): IterableIterator<TitonicResolveCandidate> {
   const node = resolveReadableTitonicNode(controller, candidate.node);
   if (candidate.occurrence === 'node-head') {
-    if (node.kind !== 'element') return [];
-    return node.children.items.map((child, index) => ({
+    if (node.kind !== 'element') return;
+    for (const [index, child] of node.children.items.entries()) yield {
       path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
       portablePath: [...candidate.portablePath, index],
       node: child,
       occurrence: 'value',
       parent: candidate,
-    }));
+    };
+    return;
   }
   if (node.kind === 'object') {
-    return [...node.properties.entries()].map(([key, child]) => ({
+    for (const [key, child] of node.properties.entries()) yield {
       path: [...candidate.path, key],
       portablePath: [...candidate.portablePath, key],
       node: child,
       occurrence: 'value',
       parent: candidate,
-    }));
-  }
-  if (node.kind === 'list' || node.kind === 'tuple') {
-    return node.items.map((child, index) => ({
+    };
+  } else if (node.kind === 'list' || node.kind === 'tuple') {
+    for (const [index, child] of node.items.entries()) yield {
       path: [...candidate.path, index],
       portablePath: [...candidate.portablePath, index],
       node: child,
       occurrence: 'value',
       parent: candidate,
-    }));
-  }
-  if (node.kind === 'element') {
-    return [{
+    };
+  } else if (node.kind === 'element') {
+    yield {
       path: candidate.path,
       portablePath: [...candidate.portablePath, 0],
       node: candidate.node,
       occurrence: 'node-head',
       parent: candidate,
-    }];
+    };
   }
-  return [];
 }
 
 function descendantTitonicChildren(
