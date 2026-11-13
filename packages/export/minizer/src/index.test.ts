@@ -118,3 +118,18 @@ test('minimize can add a trailing newline when requested', () => {
   const result = minimize(compiled.events, { trailingNewline: true });
   assert.equal(result.text, 'name="AEON"\n');
 });
+
+test('minimize preserves symbolic literal spelling from the current parser', () => {
+  const compiled = compile('stage:symbol = |this has \\| spaces|');
+  assert.deepEqual(compiled.errors, []);
+  const result = minimize(compiled.events);
+  assert.equal(result.text, 'stage:symbol=|this has \\| spaces|');
+  const again = compile(result.text);
+  assert.deepEqual(again.errors, []);
+  const projected = (events: typeof compiled.events) => events.map((event) => {
+    assert.equal(event.value.type, 'SymbolicLiteral');
+    if (event.value.type !== 'SymbolicLiteral') throw new Error('Expected symbolic literal');
+    return [event.value.type, event.value.value, event.value.raw];
+  });
+  assert.deepEqual(projected(again.events), projected(compiled.events));
+});

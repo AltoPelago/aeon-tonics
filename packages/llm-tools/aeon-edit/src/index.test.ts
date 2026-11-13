@@ -251,6 +251,14 @@ test('plans guarded binding attribute set operations', () => {
   assert.equal(plan.operations[0]?.value, '"tools"');
 });
 
+test('symbolic attribute guard snippets retain the original literal spelling', () => {
+  const withMetadata = String.raw`aeon:mode="strict"
+app@{owner:symbol=|core\|tools|}:object={name:string="Aeon"}`;
+  const result = planAeonEditAttributeSet(withMetadata, '$.app', 'owner', '"new"');
+  const plan = result.value as {readonly operations: readonly {readonly expectAttribute?: string}[]};
+  assert.equal(plan.operations[0]?.expectAttribute, String.raw`|core\|tools|`);
+});
+
 test('plans guarded node attribute set operations', () => {
   const withNode = [
     'aeon:mode = "strict"',

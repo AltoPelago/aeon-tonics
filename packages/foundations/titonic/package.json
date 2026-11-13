@@ -17,6 +17,9 @@
     "!dist/**/*.test.js",
     "!dist/**/*.test.js.map"
   ],
+  "dependencies": {
+    "@altopelago/sansa": "0.15.0-rc.1"
+  },
   "scripts": {
     "build": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json",
     "typecheck": "node ../../../../aeon/implementations/typescript/node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",

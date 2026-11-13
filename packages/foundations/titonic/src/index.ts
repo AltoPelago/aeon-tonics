@@ -12,9 +12,12 @@ import type {
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import {
   parseAddressOrThrow,
+  renderAddress,
+  resolveAddress,
   type SansaAddress,
+  type SansaResolveDiagnostic,
   type SansaSelector,
-} from '../../../../../sansa/src/index.js';
+} from '@altopelago/sansa';
 import { minimize } from '../../../export/minizer/dist/index.js';
 
 export interface TitonicCreateOptions {
@@ -93,6 +96,9 @@ export interface TitonicList extends Array<TitonicValue> {}
 export interface TitonicTuple extends Array<TitonicValue> {}
 
 export type TitonicResolveDiagnosticCode =
+  | SansaResolveDiagnostic['code']
+  | 'TITONIC_RESOLVE_UNSUPPORTED_SELECTOR'
+  | 'TITONIC_RESOLVE_UNSUPPORTED_IDENTITY_QUALIFIER'
   | 'TITONIC_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT'
   | 'TITONIC_RESOLVE_UNSUPPORTED_ATTRIBUTE_SPACE'
   | 'TITONIC_RESOLVE_UNSUPPORTED_LOCAL_SPACE';
@@ -101,10 +107,15 @@ export interface TitonicResolveDiagnostic {
   readonly code: TitonicResolveDiagnosticCode;
   readonly message: string;
   readonly selectorIndex?: number;
+  readonly identity?: string;
+  readonly limit?: number;
+  readonly observed?: number;
 }
 
 export interface TitonicResolveOptions {
   readonly contextPath?: readonly TitonicPathSegment[];
+  /** Logical child inspections across the whole call, including misses; default 10,000. */
+  readonly maxIdentityInspections?: number;
 }
 
 export interface TitonicResolvedBinding {
@@ -489,7 +500,29 @@ export function resolveTitonicAddress(
   options: TitonicResolveOptions = {},
 ): TitonicResolveResult {
   const controller = getController(value);
-  const address = typeof addressInput === 'string' ? parseAddressOrThrow(addressInput) : addressInput;
+  let address = typeof addressInput === 'string' ? parseAddressOrThrow(addressInput) : addressInput;
+  const hasIdentity = Array.isArray(address?.selectors)
+    && address.selectors.some((selector) => selector?.type === 'childIdentity');
+  if (hasIdentity && typeof addressInput !== 'string') {
+    try {
+      if (address.type !== 'SansaAddress' || address.root.type !== 'root'
+        || !['absolute', 'contextual'].includes(address.root.kind)) throw new Error('Invalid root');
+      // Do not recursively render caller-owned qualifier trees; this consumer has no evaluator.
+      if (address.qualifierExpression) return unsupportedIdentityQualifier(address);
+      address = parseAddressOrThrow(renderAddress(address));
+    } catch {
+      return { address, exact: false, bindings: [], diagnostics: [{
+        code: 'SANSA_RESOLVE_INVALID_ADDRESS', message: 'Invalid Titonic identity address AST.',
+      }] };
+    }
+  }
+  if (hasIdentity && address.qualifierExpression) return unsupportedIdentityQualifier(address);
+  const identityBudget = { limit: options.maxIdentityInspections === undefined ? 10_000 : options.maxIdentityInspections, inspected: 0 };
+  if (!Number.isSafeInteger(identityBudget.limit) || identityBudget.limit < 0) {
+    return { address, exact: address.isExact, bindings: [], diagnostics: [{
+      code: 'SANSA_RESOLVE_INVALID_IDENTITY_LIMIT', message: 'Identity inspection limit must be a non-negative safe integer.',
+    }] };
+  }
   const diagnostics: TitonicResolveDiagnostic[] = [];
   let candidates: readonly TitonicResolveCandidate[];
 
@@ -513,7 +546,7 @@ export function resolveTitonicAddress(
 
   for (let index = 0; index < address.selectors.length; index += 1) {
     const selector = address.selectors[index]!;
-    const step = resolveTitonicSelector(controller, candidates, selector, index);
+    const step = resolveTitonicSelector(controller, candidates, selector, index, identityBudget);
     candidates = step.candidates;
     diagnostics.push(...step.diagnostics);
     if (diagnostics.length > 0 || candidates.length === 0) {
@@ -524,9 +557,16 @@ export function resolveTitonicAddress(
   return {
     address,
     exact: address.isExact,
-    bindings: candidates.map((candidate) => bindingFromResolveCandidate(controller, candidate)),
+    bindings: diagnostics.length > 0 ? [] : candidates.map((candidate) => bindingFromResolveCandidate(controller, candidate, hasIdentity)),
     diagnostics,
   };
+}
+
+function unsupportedIdentityQualifier(address: SansaAddress): TitonicResolveResult {
+  return { address, exact: false, bindings: [], diagnostics: [{
+    code: 'TITONIC_RESOLVE_UNSUPPORTED_IDENTITY_QUALIFIER',
+    message: 'Titonic does not evaluate qualified identity addresses.',
+  }] };
 }
 
 export function titonicAt(
@@ -1067,8 +1107,37 @@ function resolveTitonicSelector(
   candidates: readonly TitonicResolveCandidate[],
   selector: SansaSelector,
   selectorIndex: number,
+  identityBudget: { readonly limit: number; inspected: number },
 ): TitonicResolveSelectorResult {
   switch (selector.type) {
+    case 'childIdentity': {
+      const matches: TitonicResolveCandidate[] = [];
+      const identityAddress: SansaAddress = {
+        type: 'SansaAddress', root: { type: 'root', kind: 'absolute' },
+        selectors: [selector], qualifierExpression: null, isExact: false, canonical: `$.\\${selector.identity}\\`,
+      };
+      for (const candidate of candidates) {
+        const result = resolveAddress(identityAddress, {
+          root: candidate,
+          children: (parent) => directTitonicChildren(controller, parent),
+          identity: (child) => {
+            identityBudget.inspected += 1;
+            if (child.occurrence === 'value') return child.node.structuralId;
+            const node = resolveReadableTitonicNode(controller, child.node);
+            return node.kind === 'element' ? node.headStructuralId : undefined;
+          },
+        }, { maxIdentityInspections: identityBudget.limit - identityBudget.inspected });
+        if (!result.ok) {
+          return { candidates: [], diagnostics: result.errors.map((error) => ({
+            ...error, selectorIndex,
+            ...(error.code === 'SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED'
+              ? { limit: identityBudget.limit, observed: identityBudget.inspected + 1 } : {}),
+          })) };
+        }
+        matches.push(...result.bindings);
+      }
+      return { candidates: matches, diagnostics: [] };
+    }
     case 'member':
       return { candidates: resolveMemberSelector(controller, candidates, selector.name), diagnostics: [] };
     case 'position':
@@ -1117,7 +1186,11 @@ function resolveTitonicSelector(
       };
     default: {
       const exhaustive: never = selector;
-      return exhaustive;
+      return { candidates: [], diagnostics: [{
+        code: 'TITONIC_RESOLVE_UNSUPPORTED_SELECTOR',
+        message: `Unsupported Titonic selector: ${String((exhaustive as SansaSelector).type)}`,
+        selectorIndex,
+      }] };
     }
   }
 }
@@ -1343,6 +1416,7 @@ function resolveReadableTitonicNode(controller: TitonicController, node: Titonic
 function bindingFromResolveCandidate(
   controller: TitonicController,
   candidate: TitonicResolveCandidate,
+  preserveProxyView = false,
 ): TitonicResolvedBinding {
   const readable = resolveReadableTitonicNode(controller, candidate.node);
   return {
@@ -1352,7 +1426,8 @@ function bindingFromResolveCandidate(
     pathText: formatTitonicResolvePath(candidate.portablePath),
     value: candidate.occurrence === 'node-head' && readable.kind === 'element'
       ? readable.tag
-      : controller.proxyFor(readable),
+      : preserveProxyView && readable.kind !== 'scalar'
+        ? proxyValueAtPath(controller, candidate.path) : controller.proxyFor(readable),
     ...((candidate.occurrence === 'node-head' && readable.kind === 'element'
       ? readable.headDatatype
       : candidate.node.declaredDatatype) ? {
@@ -1365,6 +1440,31 @@ function bindingFromResolveCandidate(
       : representationKindForTitonicNode(candidate.node),
     occurrence: candidate.occurrence,
   };
+}
+
+// Traverse the existing live proxy view so a selected container below a clone
+// keeps copy-on-write behavior instead of exposing the target container proxy.
+function proxyValueAtPath(controller: TitonicController, path: readonly ReferencePathSegment[]): TitonicValue {
+  let node: TitonicNode = controller.root;
+  for (const segment of path) {
+    if (typeof segment === 'object') throw new Error('Titonic attribute paths are not supported.');
+    while (node.kind === 'pointer-alias') node = resolveAliasTarget(controller, node);
+    if (node.kind === 'clone-view') {
+      node = createDerivedCloneView(node, segment);
+      continue;
+    }
+    if (node.kind === 'element' && segment === ELEMENT_CHILDREN_SEGMENT) {
+      node = node.children;
+      continue;
+    }
+    const child: TitonicNode | undefined = node.kind === 'object' && typeof segment === 'string'
+      ? node.properties.get(segment)
+      : (node.kind === 'list' || node.kind === 'tuple') && typeof segment === 'number'
+        ? node.items[segment] : undefined;
+    if (!child) throw new Error('Titonic could not resolve the selected proxy view.');
+    node = child;
+  }
+  return controller.proxyFor(node);
 }
 
 function publicTitonicPath(path: readonly ReferencePathSegment[]): readonly TitonicPathSegment[] {
@@ -1833,9 +1933,9 @@ function nodeFromValue(
     case 'NullLiteral':
       return createScalarNode('null', null, metadata);
     case 'InfinityLiteral':
-      return createScalarNode('infinity', value.value === '-Infinity' ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY, nodeMetadata(declaredDatatype ?? 'infinity', annotations, attributes));
+      return createScalarNode('infinity', value.value === '-Infinity' ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY, nodeMetadata(declaredDatatype ?? 'infinity', annotations, attributes, structuralId));
     case 'NaNLiteral':
-      return createScalarNode('nan', Number.NaN, nodeMetadata(declaredDatatype ?? 'nan', annotations, attributes));
+      return createScalarNode('nan', Number.NaN, nodeMetadata(declaredDatatype ?? 'nan', annotations, attributes, structuralId));
     case 'ToggleLiteral':
       return createScalarNode('toggle', createNativeScalar('toggle', value.raw), metadata);
     case 'HexLiteral':
@@ -1856,6 +1956,8 @@ function nodeFromValue(
         : createScalarNode('datetime', createNativeScalar('datetime', value.raw), metadata);
     case 'TimeLiteral':
       return createScalarNode('time', createNativeScalar('time', value.raw), metadata);
+    case 'SymbolicLiteral':
+      throw new TypeError('Titonic does not support SymbolicLiteral values yet.');
     case 'ObjectNode': {
       const properties = new Map<string, TitonicNode>();
       for (const binding of value.bindings) {
@@ -1884,7 +1986,7 @@ function nodeFromValue(
       return {
         kind: 'element',
         tag: value.tag,
-        ...(value.structuralId ? { headStructuralId: value.structuralId } : {}),
+        ...(value.structuralId !== undefined && value.structuralId !== null ? { headStructuralId: value.structuralId } : {}),
         ...(value.datatype ? { headDatatype: formatDatatypeAnnotation(value.datatype) } : {}),
         ...(headAnnotations
           ? {
@@ -2217,6 +2319,7 @@ function emitNodeEvents(
   out.push({
     path: { segments: [...path] },
     key,
+    sourcePlane: 'body',
     ...(node.structuralId ? { structuralId: node.structuralId } : {}),
     value,
     span: zeroSpan(),
@@ -2426,13 +2529,15 @@ function scalarNodeToValue(node: ScalarNode): Value {
     }
     case 'sansa': {
       const native = requireNativeScalar(node, 'sansa');
-      const address = parseAddressOrThrow(native.raw);
+      // Address ASTs belong to the active AEON compiler's SANSA version.
+      const compiled = compile(`value=${native.raw}`);
+      const literal = compiled.events[0]?.value;
+      if (compiled.errors.length > 0 || literal?.type !== 'SansaAddressLiteral') {
+        throw new TypeError('The active AEON compiler cannot represent this SANSA literal.');
+      }
       return {
-        type: 'SansaAddressLiteral',
-        address,
-        value: address.canonical,
+        ...literal,
         raw: native.raw,
-        canonical: address.canonical,
         span: zeroSpan(),
       };
     }
@@ -2640,7 +2745,7 @@ function nodeMetadata(
   structuralId?: string,
 ): NodeMetadata {
   return {
-    ...(structuralId ? { structuralId } : {}),
+    ...(structuralId !== undefined ? { structuralId } : {}),
     ...(declaredDatatype ? { declaredDatatype } : {}),
     ...(annotations && annotations.size > 0 ? { annotations } : {}),
     ...(attributes && attributes.length > 0 ? { attributes } : {}),
@@ -2700,7 +2805,7 @@ function isTopLevelEvent(event: AssignmentEvent): boolean {
 }
 
 function isHeaderEvent(event: AssignmentEvent): boolean {
-  return event.key.startsWith('aeon:');
+  return event.sourcePlane === undefined ? event.key.startsWith('aeon:') : event.sourcePlane === 'header';
 }
 
 function zeroSpan() {

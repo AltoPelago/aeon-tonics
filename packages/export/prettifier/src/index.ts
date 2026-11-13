@@ -58,7 +58,8 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
 
 function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): string {
   const segment = event.path.segments[1] as RootMemberSegment;
-  const aeonShortcutHeader = segment.key.startsWith('aeon:');
+  const aeonShortcutHeader = event.sourcePlane === undefined
+    ? segment.key.startsWith('aeon:') : event.sourcePlane === 'header';
   const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key);
   const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
   const datatype = aeonShortcutHeader ? '' : renderEventDatatype(event.datatype);
@@ -85,6 +86,7 @@ function renderValue(value: Value, context: RenderContext, depth: number): strin
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
+    case 'SymbolicLiteral':
       return value.raw;
     case 'ObjectNode':
       return renderObject(value, context, depth);

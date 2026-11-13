@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import { convertAeonMode } from './index.js';
 
@@ -223,4 +224,68 @@ test('convertAeonMode adds a mode header when one is absent', () => {
   const result = convertAeonMode('name = "Aeon"', { target: 'strict' });
 
   assert.equal(result.text, 'aeon:mode="strict"\nname:string="Aeon"');
+});
+
+const symbolicSource = [
+  'aeon:mode = "transport"',
+  'status\\STATE\\ = |ready\\|now|',
+  'meta@{kind\\META\\ = |annotation|} = |value|',
+  'nested = { value\\NESTED\\ = |nested| }',
+  'items = [\\ITEM\\ = |list|]',
+  'pair = (|tuple|)',
+  'panel = <tag\\HEAD\\(|child|)>',
+  'copy = ~status',
+  'pointer = ~>nested.value',
+].join('\n');
+
+for (const target of ['strict', 'transport', 'custom'] as const) {
+  test(`convertAeonMode preserves symbolic values, identities and reference targets in ${target}`, () => {
+    const before = compile(symbolicSource);
+    assert.deepEqual(before.errors, []);
+    const result = convertAeonMode(symbolicSource, { target });
+    const after = compile(result.text);
+    assert.deepEqual(after.errors, []);
+    const observed = (events: typeof before.events) => projectPortableEvents(events)
+      .filter((record) => record.kind === 'SymbolicLiteral'
+        || record.kind === 'CloneReference' || record.kind === 'PointerReference'
+        || record.identity !== undefined)
+      .map(({path, kind, identity, value}) => ({path, kind, identity, value}));
+    assert.deepEqual(observed(after.events), observed(before.events));
+    assert.match(result.text, /\|ready\\\|now\|/);
+    for (const key of ['status', 'copy', 'pointer']) {
+      assert.equal(after.events.find((event) => event.key === key)?.datatype,
+        target === 'transport' ? undefined : 'symbol');
+    }
+  });
+}
+
+test('convertAeonMode accepts reserved symbol annotations through strict roundtrips', () => {
+  const strict = convertAeonMode(symbolicSource, { target: 'strict' });
+  assert.equal(convertAeonMode(strict.text, { target: 'strict' }).text, strict.text);
+  const transport = convertAeonMode(strict.text, { target: 'transport' });
+  assert.equal(convertAeonMode(transport.text, { target: 'strict' }).text, strict.text);
+  const custom = convertAeonMode(strict.text, { target: 'custom' });
+  assert.equal(convertAeonMode(custom.text, { target: 'strict' }).text, strict.text);
+});
+
+test('transport conversion retains an anonymous identity when removing its datatype', () => {
+  const result = convertAeonMode(String.raw`aeon:mode="strict"
+items:list=[\ITEM\:number=1]`, {target: 'transport'});
+  assert.equal(result.text, String.raw`aeon:mode="transport"
+items=[\ITEM\=1]`);
+  const replay = compile(result.text);
+  assert.deepEqual(replay.errors, []);
+  assert.equal(projectPortableEvents(replay.events)
+    .find((record) => record.path === '$.items[0]')?.identity, 'ITEM');
+});
+
+test('convertAeonMode still rejects custom datatypes attached to symbolic values in strict mode', () => {
+  for (const source of [
+    'stage:application = |ready|',
+    'meta@{stage:application = |ready|} = |value|',
+    'items = [:application = |ready|]',
+  ]) {
+    assert.throws(() => convertAeonMode(source, { target: 'strict' }),
+      /Cannot convert custom datatype to strict mode: application/);
+  }
 });

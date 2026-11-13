@@ -1414,6 +1414,7 @@ function renderAstValueSnippet(value: AttributeEntry['value']): string {
     case 'DateLiteral':
     case 'DateTimeLiteral':
     case 'TimeLiteral':
+    case 'SymbolicLiteral':
       return value.raw;
     case 'ObjectNode':
       return `{${value.bindings.map((binding) => `${formatBindingKey(binding.key)}${binding.datatype ? `:${binding.datatype.name}` : ''}=${renderAstValueSnippet(binding.value)}`).join(',')}}`;
