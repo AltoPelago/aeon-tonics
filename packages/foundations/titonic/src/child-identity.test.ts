@@ -294,6 +294,7 @@ test('identity allowance bounds object child enumeration before eager materializ
   let yielded=0;
   Map.prototype.entries=function* () {
    for(const pair of entries.call(this)) { if(this.size===width) yielded++; yield pair; }
+   return undefined;
   };
   try {
    const result=resolveTitonicAddress(document,'$.\\missing\\',{maxIdentityInspections:1});
