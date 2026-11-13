@@ -5,6 +5,14 @@
 Its purpose is to materialize strict AEON data as a live TypeScript document model that can be
 read, updated, and exported without losing alignment with the AES ecosystem.
 
+## Child identity selectors (candidate)
+
+Read-only `resolveTitonicAddress` supports authored direct-child identities such
+as `$.items.\\item1\\`, with a shared per-call inspection budget and canonical
+structural result paths. Binding and node-head IDs remain distinct. See the
+[API contract](API_REFERENCE.md#sansa-address-resolution) for live proxy behavior,
+unsupported spaces and combined-release dependency limits.
+
 ## Intent
 
 Titonic is for cases where AEON is not just an input blob to deserialize once, but a document that

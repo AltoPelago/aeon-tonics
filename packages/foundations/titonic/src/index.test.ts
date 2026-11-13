@@ -377,6 +377,29 @@ test('titonic preserves SANSA address literals as native scalar values', () => {
   assert.equal(exportedAeon, 'aeon:mode="strict"\nlink:sansa=?.name');
 });
 
+for (const raw of ['?.name', '$.items[2].sku', '$.\\ITEM\\']) {
+  test(`SANSA literal export respects the active AEON compiler contract: ${raw}`, () => {
+    const doc = createTitonicFromAeon('aeon:mode="strict"\nlink:sansa=$.items');
+    doc.link = titonicSansa(raw);
+    const expected = compile(`value=${raw}`);
+    if (expected.errors.length > 0) {
+      assert.throws(() => exportTitonicAes(doc), {
+        name: 'TypeError',
+        message: 'The active AEON compiler cannot represent this SANSA literal.',
+      });
+      return;
+    }
+    const sourceLiteral = expected.events[0]?.value;
+    assert.ok(sourceLiteral?.type === 'SansaAddressLiteral');
+    const exported = exportTitonicAes(doc).find((event) => event.key === 'link')?.value;
+    assert.ok(exported?.type === 'SansaAddressLiteral');
+    assert.deepEqual(exported.address, sourceLiteral.address);
+    assert.equal(exported.raw, raw);
+    assert.equal(exported.canonical, sourceLiteral.canonical);
+    assert.deepEqual(compile(exportTitonicAeon(doc)).errors, []);
+  });
+}
+
 test('titonic supports fixed-arity tuple reads, indexed updates, and tuple export', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',

@@ -99,6 +99,58 @@ child through the portable `NodeLiteral -> NodeHead -> content` hierarchy. Its
 binding returns `portablePath` and `pathText`; `titonicPath` is available when a
 caller must pass the result to a low-level Titonic mutation helper.
 
+## SANSA Address Resolution
+
+### Read-only child identity resolution (candidate)
+
+`resolveTitonicAddress(document, '$.items.\\item1\\', options?)` selects the
+exposed direct child with that authored structural identity. Chaining follows
+parent-child relationships. Results keep `exact: false`, canonical `pathText`,
+`portablePath` and existing internal `titonicPath`; identity expressions do not
+become canonical paths. Quoted marker-shaped keys remain ordinary member keys.
+
+`TitonicResolveOptions.maxIdentityInspections` is a nonnegative safe integer,
+default 10,000. One call shares this logical budget across every parent and
+chained/repeated identity step, including missing IDs and misses. All siblings
+are inspected to detect ambiguity. Ambiguity, malformed metadata or budget
+exhaustion return diagnostics and no bindings. Scan diagnostics retain SANSA
+codes and optional `identity`, `limit`, `observed` and `selectorIndex` context.
+Actual enumeration/allocation cost is separate from logical inspections.
+
+Value occurrences use binding IDs; `NodeLiteral -> NodeHead` traversal exposes
+the head ID independently. A binding's ID does not select its head, or vice
+versa. Alias bindings use their own IDs, not target IDs; navigation beneath
+aliases keeps current portable paths. Identity-selected container values use
+the existing live proxy view, including pointer sharing and clone copy-on-write.
+Reading does not detach a clone or rewrite its structural reference target.
+
+Results describe the synchronous call's observed state. Proxies remain live;
+stored paths may become stale after edits. Re-resolve after reordering rather
+than treating an identity or saved result as durable occurrence/authorisation
+proof. This adds no identity-aware mutation planner or SO support.
+
+Contextual roots still require `contextPath`; the scope root is not one of its
+own children. Attribute/local spaces remain explicitly unsupported. Qualified
+identity addresses are rejected because this dispatcher has no qualifier
+evaluator. Caller identity ASTs are normalized and exactness is recomputed.
+New recursive/root-search syntax, global lookup and identity reference targets
+are outside this capability. Titonic still rejects SymbolicLiteral values
+explicitly; parser acceptance alone does not extend its value model.
+
+Titonic imports its declared `@altopelago/sansa` package. The private npm workspace
+installs the reviewed development archive; see the root candidate setup. No
+sibling SANSA source checkout is required. Other AEON imports still use the
+documented sibling workspace, so standalone registry packaging remains unqualified.
+Official releases, final registry pins and platform qualification remain separate.
+
+Read-only address resolution uses that SANSA package's capabilities. Exporting a
+`titonicSansa(...)` scalar instead uses the active AEON compiler's literal AST.
+An address accepted by the resolver may exceed an older compiler's literal
+capabilities; export then throws `TypeError` rather than constructing an unsupported
+AST. The coordinated candidate compiler supports child-identity literals; older
+compiler installations retain their existing literal boundary. Reference targets
+and identity admission to mutation/SO are unchanged.
+
 ## Path-Oriented Binding Attribute CRUD
 
 - `getTitonicAttributes(document, path)`

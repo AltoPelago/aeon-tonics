@@ -158,7 +158,14 @@ Workspace guide:
   Archived historical proposal for the earlier `fmt.md.aeon` / `fmt.md.aes` direction.
 
 This workspace currently reuses the built TypeScript implementation artifacts from the sibling
-`../aeon/implementations/typescript` workspace instead of maintaining a separate dependency install.
+`../aeon/implementations/typescript` workspace. Titonic resolves SANSA through its declared npm
+package dependency; it no longer imports the sibling SANSA source checkout.
+
+The private root npm workspace installs all 19 local package links and the reviewed SANSA
+development archive. Follow [candidate setup](./.candidate-packages/README.md), then run the
+existing `npm run build`, `npm run typecheck` and `npm test` commands. Keep the ignored archive
+with the candidate source handoff. The local override must be replaced and the genuine registry
+graph qualified before an official release. Releases and deployment remain on hold.
 
 ## AES Ecosystem Note
 

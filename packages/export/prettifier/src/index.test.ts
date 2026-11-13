@@ -1,8 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import { formatPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { prettify, prettifyAeon } from './index.js';
+
+test('prettify preserves symbolic spelling, identities and reference targets through nested formatting', () => {
+  const source = String.raw`stage\STATE\@{kind:symbol=|metadata|}:symbol=|ready\|now|
+items=[|one|,{value\VALUE\=|two|}]
+copy=~stage
+pointer=~>items[1].value`;
+  const before = compile(source);
+  assert.deepEqual(before.errors, []);
+  const result = prettifyAeon(source);
+  const after = compile(result.text);
+  assert.deepEqual(after.errors, []);
+  assert.match(result.text, /\|ready\\\|now\|/);
+  const observed = (events: typeof before.events) => projectPortableEvents(events)
+    .map(({path, kind, identity, datatype, value}) => ({path, kind, identity, datatype, value}));
+  assert.deepEqual(observed(after.events), observed(before.events));
+  assert.equal(prettifyAeon(result.text).text, result.text);
+});
+
+test('prettify keeps quoted aeon-prefixed body keys distinct from header reference targets', () => {
+  const source = 'aeon:header={x={leaf=1}}\n"aeon:x"=2\ncopy=~>["aeon:x"].leaf';
+  const before = compile(source);
+  assert.deepEqual(before.errors, []);
+  const result = prettifyAeon(source);
+  assert.match(result.text, /^"aeon:x" = 2$/m);
+  const after = compile(result.text);
+  assert.deepEqual(after.errors, []);
+  assert.deepEqual(after.events.find((event) => event.key === 'copy')?.value.type,
+    'PointerReference');
+  assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
+});
 
 test('prettify preserves structural identities at every headed occurrence', () => {
   const source = 'value\\BIND\\@{source\\META\\:string="user"}=<tag\\HEAD\\(\\CHILD\\:string="text")>';

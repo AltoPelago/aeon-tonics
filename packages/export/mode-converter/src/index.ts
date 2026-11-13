@@ -35,7 +35,7 @@ const RESERVED_V1_DATATYPES = new Set([
   'hex', 'date', 'time', 'datetime', 'wtc',
   'encoding', 'base64', 'embed', 'inline',
   'radix', 'radix2', 'radix6', 'radix8', 'radix12',
-  'sep', 'set',
+  'sep', 'symbol', 'set',
   'tuple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
 ]);
 
@@ -112,7 +112,7 @@ function convertValue(
       const convertedInner = convertValue(value.value, target, preserve, false, inference);
       const attributes = convertAttributes(value.attributes, target, preserve, inference);
       if (target === 'transport' && !shouldPreserveDatatype(datatype, preserve)) {
-        if (attributes.length === 0) {
+        if (attributes.length === 0 && !value.structuralId) {
           return convertedInner;
         }
         return { ...value, datatype: null, attributes, value: convertedInner };
@@ -139,6 +139,7 @@ function convertValue(
     case 'CloneReference':
     case 'PointerReference':
     case 'StringLiteral':
+    case 'SymbolicLiteral':
     case 'NumberLiteral':
     case 'InfinityLiteral':
     case 'NaNLiteral':
@@ -307,6 +308,8 @@ function inferDatatype(value: Value, inference?: InferenceContext, seenReference
       return value.datatype ? formatDatatype(value.datatype) : inferDatatype(value.value, inference, seenReferences);
     case 'StringLiteral':
       return value.trimticks ? 'trimtick' : 'string';
+    case 'SymbolicLiteral':
+      return 'symbol';
     case 'NumberLiteral':
       return 'number';
     case 'InfinityLiteral':
@@ -545,6 +548,7 @@ function assertValueHasNoCustomDatatypes(value: Value): void {
     case 'CloneReference':
     case 'PointerReference':
     case 'StringLiteral':
+    case 'SymbolicLiteral':
     case 'NumberLiteral':
     case 'InfinityLiteral':
     case 'NaNLiteral':

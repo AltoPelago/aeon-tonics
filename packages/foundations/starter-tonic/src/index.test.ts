@@ -9,6 +9,29 @@ import {
   exportStarterTonicAes,
 } from './index.js';
 
+test('starter tonic preserves raw symbolic snapshots and parsed-value writes', () => {
+  const source = String.raw`stage\STATE\:symbol=|ready\|now|
+nested={value=|inside|}
+alias=~stage`;
+  const doc = createStarterTonicFromAeon(source);
+  assert.equal(doc.snapshot()['stage'], String.raw`|ready\|now|`);
+  assert.deepEqual(doc.snapshot()['nested'], {value: '|inside|'});
+  const stage = doc.getValue('stage');
+  assert.ok(stage);
+  assert.equal(stage.type, 'SymbolicLiteral');
+  doc.setParsed('fresh', stage, {structuralId: 'FRESH', datatype: 'symbol'});
+  doc.set('other', true);
+  const result = exportStarterTonicAeon(doc);
+  const replay = compile(result.text);
+  assert.deepEqual(replay.errors, []);
+  assert.match(result.text, /stage\\STATE\\:symbol=\|ready\\\|now\|/);
+  assert.match(result.text, /fresh\\FRESH\\:symbol=\|ready\\\|now\|/);
+  const alias = replay.events.find((event) => event.key === 'alias')?.value;
+  assert.equal(alias?.type, 'CloneReference');
+  assert.ok(alias?.type === 'CloneReference');
+  assert.deepEqual(alias.path, ['stage']);
+});
+
 test('starter tonic can load top-level bindings and expose a simple snapshot view', () => {
   const doc = createStarterTonicFromAeon('aeon:mode = "strict"\ntitle:string = "Hello"\ncount:number = 2\ncopy:string = ~title');
 

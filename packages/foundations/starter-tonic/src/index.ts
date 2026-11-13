@@ -213,6 +213,7 @@ function materializeValue(value: Value): StarterSnapshotValue {
     case 'DateTimeLiteral':
     case 'TimeLiteral':
     case 'SansaAddressLiteral':
+    case 'SymbolicLiteral':
       return value.raw;
     case 'ObjectNode':
       return Object.freeze(
@@ -297,6 +298,7 @@ function renderParsedValue(value: Value): string {
     case 'DateTimeLiteral':
     case 'TimeLiteral':
     case 'SansaAddressLiteral':
+    case 'SymbolicLiteral':
       return value.raw;
     case 'ObjectNode':
       return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.structuralId, binding.datatype, binding.attributes)).join(',')}}`;
