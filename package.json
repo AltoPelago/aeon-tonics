@@ -7,7 +7,7 @@
     "packages/*/*"
   ],
   "overrides": {
-    "@altopelago/sansa": "file:../../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz"
+    "@altopelago/sansa": "file:../../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-0436666.tgz"
   },
   "scripts": {
     "prepare:sansa-candidate": "node scripts/stage-sansa-candidate.mjs",
