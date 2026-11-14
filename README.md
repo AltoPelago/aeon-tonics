@@ -1,5 +1,8 @@
 # AEON Tonics
 
+See [release integration](RELEASING.md) for beta/RC/stable acceptance and the
+shared AEON 0.17.0 checklist.
+
 Custom tonic workspace for experiments built on top of the AEON TypeScript implementation.
 
 ## For AI Agents
