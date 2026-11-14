@@ -2,7 +2,7 @@
 
 Titonic declares `@altopelago/sansa` `0.15.0-rc.1` and imports its public package.
 The private npm workspace overrides that dependency with the reviewed archive
-from signed SANSA commit `53d375c`. This is local development preparation;
+from merged SANSA commit `0436666`. This is local development preparation;
 official publication and deployment remain held.
 
 The reviewed archive is retained on the integration branch. From the repo root,
@@ -14,7 +14,7 @@ npm ci --offline --ignore-scripts --no-audit --fund=false
 ```
 
 The helper verifies SHA-256
-`26c8a4933cee1e887db2bb97f37052b65b46491d50cd94aeb8b53d8f2047469f`
+`bb3243188ca46198301d778fb92ea6c174842372671084b481330b965c1be759`
 before copying and refuses different bytes. Without an argument it verifies the
 staged archive. It does not fetch, publish or repack anything. Only this exact
 reviewed archive is versioned; other tarballs remain ignored. The helper accepts
