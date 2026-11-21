@@ -170,6 +170,10 @@ existing `npm run build`, `npm run typecheck` and `npm test` commands. Keep the 
 with the candidate source handoff. The local override must be replaced and the genuine registry
 graph qualified before an official release. Releases and deployment remain on hold.
 
+The [property-selector support guide](docs/property-selector-support.md) explains
+why the selected archive does not imply the newer SDK property capability in
+every Tonics host. No dependency or admission change follows from that guide.
+
 ## AES Ecosystem Note
 
 In this workspace, "AES ecosystem" means the layers that produce AES, consume AES directly, or
