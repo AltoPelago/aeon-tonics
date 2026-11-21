@@ -9,6 +9,11 @@ All 114 packaged files match that source; provenance.json records the tree.
 Previous archives remain unchanged for provenance. The staging helper verifies
 only the selected bytes; it never fetches, publishes or substitutes a package.
 
+This selected archive predates property-selector parsing. A neighboring SANSA
+checkout, successful source playground or newer SDK is not evidence that this
+installed graph supports property expressions. See the
+[host/admission guide](../docs/property-selector-support.md). No pin changes here.
+
 This is an unreleased integration candidate. Package versions and registry
 dependencies are not advanced. Final registry integrity, platform qualification
 and release adoption remain separate; releases and deployment stay held.
