@@ -137,9 +137,9 @@ New recursive/root-search syntax, global lookup and identity reference targets
 are outside this capability. Titonic still rejects SymbolicLiteral values
 explicitly; parser acceptance alone does not extend its value model.
 
-Titonic imports exact public `@altopelago/sansa@0.15.0-rc.3` in this RC candidate;
+Titonic imports exact public `@altopelago/sansa@0.15.0` in this RC candidate;
 the root frozen lock no longer uses the historical development archive. See the
-[registry integration boundary](../../../docs/rc-registry-integration.md). No
+[registry integration boundary](../../../docs/stable-registry-integration.md). No
 sibling SANSA source checkout is required. Other AEON imports still use the
 documented sibling workspace, so standalone registry packaging remains unqualified.
 Stable registry adoption, official releases and platform qualification remain separate.

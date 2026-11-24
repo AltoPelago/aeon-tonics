@@ -1,3 +1,6 @@
+Historical RC3 integration record. For current stable inputs and gates, see
+[stable integration](stable-registry-integration.md).
+
 # Public RC integration inputs
 
 Prepared 24 November 2026 for the AEON 0.17.0 release investigation. This candidate
