@@ -164,15 +164,19 @@ This workspace currently reuses the built TypeScript implementation artifacts fr
 `../aeon/implementations/typescript` workspace. Titonic resolves SANSA through its declared npm
 package dependency; it no longer imports the sibling SANSA source checkout.
 
-The private root npm workspace installs all 19 local package links and the reviewed SANSA
-development archive. Follow [candidate setup](./.candidate-packages/README.md), then run the
-existing `npm run build`, `npm run typecheck` and `npm test` commands. Keep the ignored archive
-with the candidate source handoff. The local override must be replaced and the genuine registry
-graph qualified before an official release. Releases and deployment remain on hold.
+The private root npm workspace installs all 19 local package links and the exact public
+SANSA `0.15.0` dependency. Run `npm ci --ignore-scripts`, then the existing
+`npm run build`, `npm run typecheck` and `npm test` commands with the selected AEON
+TypeScript sibling build available. No private SANSA archive or root override is
+required. The old staging helper and [archive provenance](./.candidate-packages/README.md)
+remain historical reproduction tools, outside the active install graph.
 
-The [property-selector support guide](docs/property-selector-support.md) explains
-why the selected archive does not imply the newer SDK property capability in
-every Tonics host. No dependency or admission change follows from that guide.
+This is an explicit RC integration, not stable adoption or a Tonics package release.
+The [property-selector support guide](docs/property-selector-support.md) keeps consumer
+capabilities separate from parser availability. See the [RC input/qualification guide](docs/stable-registry-integration.md)
+for the selected public producer graph and the unchanged legacy sibling-layout boundary.
+Existing compatibility/target checks and resource budgets remain unchanged; deployment
+and final stable adoption remain separate gates.
 
 ## AES Ecosystem Note
 

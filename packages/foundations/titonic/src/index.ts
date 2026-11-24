@@ -517,6 +517,10 @@ export function resolveTitonicAddress(
     }
   }
   if (hasIdentity && address.qualifierExpression) return unsupportedIdentityQualifier(address);
+  const propertyIndex = address.selectors.findIndex((selector) => selector.type === 'propertyFilter');
+  if (propertyIndex >= 0) {
+    return { address, exact: false, bindings: [], diagnostics: [unsupportedPropertySelector(propertyIndex)] };
+  }
   const identityBudget = { limit: options.maxIdentityInspections === undefined ? 10_000 : options.maxIdentityInspections, inspected: 0 };
   if (!Number.isSafeInteger(identityBudget.limit) || identityBudget.limit < 0) {
     return { address, exact: address.isExact, bindings: [], diagnostics: [{
@@ -559,6 +563,14 @@ export function resolveTitonicAddress(
     exact: address.isExact,
     bindings: diagnostics.length > 0 ? [] : candidates.map((candidate) => bindingFromResolveCandidate(controller, candidate, hasIdentity)),
     diagnostics,
+  };
+}
+
+function unsupportedPropertySelector(selectorIndex: number): TitonicResolveDiagnostic {
+  return {
+    code: 'TITONIC_RESOLVE_UNSUPPORTED_SELECTOR',
+    message: 'Titonic SANSA Resolve does not evaluate property selectors.',
+    selectorIndex,
   };
 }
 
@@ -1166,6 +1178,8 @@ function resolveTitonicSelector(
         ) === selector.name),
         diagnostics: [],
       };
+    case 'propertyFilter':
+      return { candidates: [], diagnostics: [unsupportedPropertySelector(selectorIndex)] };
     case 'attributeSpace':
       return {
         candidates: [],

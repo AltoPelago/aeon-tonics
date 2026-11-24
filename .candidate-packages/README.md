@@ -1,4 +1,9 @@
-# Combined SANSA development candidate
+# Historical SANSA development archive
+
+The active workspace now declares public SANSA `0.15.0-rc.3` without a file override.
+See the [current integration guide](../docs/stable-registry-integration.md). The earlier
+checkpoint below is retained for provenance and the optional staging helper; its
+unpublished/archive/hold statements describe that historical candidate only.
 
 The selected local archive contains ordinary empty property names and merged
 Unicode hardening from immutable SANSA source `05b8739f06be0e76d03e0d3b17ec6c403568d41e`.
