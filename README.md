@@ -165,7 +165,7 @@ This workspace currently reuses the built TypeScript implementation artifacts fr
 package dependency; it no longer imports the sibling SANSA source checkout.
 
 The private root npm workspace installs all 19 local package links and the exact public
-SANSA `0.15.0-rc.2` dependency. Run `npm ci --ignore-scripts`, then the existing
+SANSA `0.15.0-rc.3` dependency. Run `npm ci --ignore-scripts`, then the existing
 `npm run build`, `npm run typecheck` and `npm test` commands with the selected AEON
 TypeScript sibling build available. No private SANSA archive or root override is
 required. The old staging helper and [archive provenance](./.candidate-packages/README.md)

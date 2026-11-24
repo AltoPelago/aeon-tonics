@@ -4,15 +4,15 @@ Prepared 24 November 2026 for the AEON 0.17.0 release investigation. This candid
 replaces only the active private SANSA archive with its exact public release.
 Tonics keeps its own package versions and existing source/build/admission contracts.
 
-- SANSA npm `0.15.0-rc.2`, producer `75a56844e6076e12a55f058b58fa1541fead05d6`.
-- AEON npm `0.17.0-rc.2`, producer `c6f338c8db191e0f0eb0c6f2b641d3cc18476199`.
+- SANSA npm `0.15.0-rc.3`, producer `0b9316f6e31814377220ab3e5821d8457857d16c`.
+- AEON npm `0.17.0-rc.3`, producer `110faa7f31dfe9f25c6dfb4bd52888eecf3e122e`.
 - Node 24.22.2, the workspace's declared npm 11.13.0, and the selected AEON
   compiler inputs TypeScript 7.0.2 / Node types 26.6.6.
 
-[Exact public artifact inputs](releases/aeon-0.17.0-rc.2.json) record immutable
+[Exact public artifact inputs](releases/aeon-0.17.0-rc.3.json) record immutable
 versions/integrities. They pin inputs, not a completed test/acceptance result.
-The AEON npm RC uses the reviewed manual bootstrap without CI provenance;
-registry signatures, archive integrity and actual content are separate checks.
+The AEON npm RC uses protected GitHub OIDC publication with verified CI provenance;
+registry signatures, archive integrity and actual content remain separate checks.
 
 ## Source layout and qualification boundary
 
