@@ -58,7 +58,9 @@ An intrinsic node uses its tag as the binding key. Use
 to inspect its structural identity, datatype, and attributes. To insert or
 replace a parsed node, pass its tag and value to `doc.setParsed()`.
 A replacement stays in the same document position so later references can
-continue to address its children.
+continue to address its children. Untouched native events retain their
+existing source locations. Provide source-plane metadata when importing events
+whose literal body keys start with AEON's header prefix.
 
 ## Why This Exists Beside Titonic
 

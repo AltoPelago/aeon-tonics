@@ -50,14 +50,14 @@ const start = { line: 1, column: 1, offset: 0 } as const;
 const initialSpan = { start, end: start } as const;
 
 export class StarterTonicDocument {
-  #headerEvents: readonly AssignmentEvent[];
-  #bindings: Map<string, BindingEvents>;
+  readonly #headerEvents: readonly AssignmentEvent[];
+  readonly #bindings: Map<string, BindingEvents>;
 
   constructor(
     headerEvents: readonly AssignmentEvent[] = [],
     bindingEvents: readonly AssignmentEvent[] = [],
   ) {
-    this.#headerEvents = headerEvents.map((event) => withPlane(event, 'header'));
+    this.#headerEvents = [...headerEvents];
     this.#bindings = groupBindings(bindingEvents.map((event) => withPlane(event, 'body')));
   }
 
@@ -103,20 +103,18 @@ export class StarterTonicDocument {
       ...(options.datatype !== undefined ? { datatype: options.datatype } : {}),
       ...(options.annotations !== undefined ? { annotations: options.annotations } : {}),
     });
-    const source = minimize([...this.#headerEvents, ...next.values()]).text;
+    const source = renderDocument(this.#headerEvents, [...next.values()]).text;
     const result = compile(source, { datatypePolicy: 'allow_custom' });
     if (result.errors.length > 0) {
       throw new Error(
         `Starter tonic could not compile binding ${JSON.stringify(key)}.\n${describeErrors(result.errors)}`,
       );
     }
-    const { header, body } = partitionEvents(result.events);
-    const updated = groupBindings(body);
-    if (!updated.has(key)) {
+    const replacement = groupBindings(result.events, key).get(key);
+    if (!replacement) {
       throw new Error(`Starter tonic could not compile binding ${JSON.stringify(key)}.`);
     }
-    this.#headerEvents = header;
-    this.#bindings = updated;
+    this.#bindings.set(key, replacement);
   }
 
   delete(key: string): boolean {
@@ -160,7 +158,31 @@ export function exportStarterTonicAeon(
   document: StarterTonicDocument,
   options: MinimizeOptions = {},
 ): MinimizeResult {
-  return minimize(document.exportAes(), options);
+  const { header, body } = partitionEvents(document.exportAes());
+  return renderDocument(header, body, options);
+}
+
+function renderDocument(
+  header: readonly AssignmentEvent[],
+  body: readonly AssignmentEvent[],
+  options: MinimizeOptions = {},
+): MinimizeResult {
+  const fields = header.filter((event) => event.path.segments.length === 2);
+  if (fields.every((event) =>
+    /^aeon:[A-Za-z_][A-Za-z0-9_]*$/u.test(event.key) && event.key !== 'aeon:header'
+    && !event.structuralId && !event.datatype && !event.annotations?.size
+  )) {
+    return minimize([...fields, ...body], options);
+  }
+
+  const bindings = fields.map((event): AssignmentEvent => {
+    const key = event.key.replace(/^aeon:/u, '');
+    return { ...event, key, sourcePlane: 'body', path: { segments: [{ type: 'root' }, { type: 'member', key }] } };
+  });
+  const headerText = `aeon:header={${minimize(bindings).text}}`;
+  const bodyText = minimize(body).text;
+  const text = bodyText ? `${headerText}\n${bodyText}` : headerText;
+  return { text: options.trailingNewline ? `${text}\n` : text };
 }
 
 function toBindingView(event: AssignmentEvent): StarterTonicBinding {
@@ -178,11 +200,12 @@ function toBindingView(event: AssignmentEvent): StarterTonicBinding {
   };
 }
 
-function groupBindings(events: readonly AssignmentEvent[]): Map<string, BindingEvents> {
+function groupBindings(events: readonly AssignmentEvent[], targetKey?: string): Map<string, BindingEvents> {
   const groups = new Map<string, BindingEvents>();
   for (const event of events) {
     const [root, member] = event.path.segments;
-    if (root?.type !== 'root' || member?.type !== 'member') continue;
+    if (root?.type !== 'root' || member?.type !== 'member' || event.sourcePlane === 'header') continue;
+    if (targetKey !== undefined && member.key !== targetKey) continue;
     if (event.path.segments.length === 2) {
       groups.set(member.key, { head: event, descendants: [] });
     } else {
@@ -208,7 +231,12 @@ function partitionEvents(events: readonly AssignmentEvent[]): { header: Assignme
       rootKey = key;
       rootPlane = plane;
     }
-    (plane === 'header' ? header : body).push(withPlane(event, plane));
+    if (plane === 'header') {
+      // Prefix-based grouping retains the original plane metadata.
+      header.push(event);
+    } else {
+      body.push(withPlane(event, 'body'));
+    }
   }
   return { header, body };
 }

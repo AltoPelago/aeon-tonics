@@ -205,3 +205,65 @@ test('starter tonic plain-value writes preserve intrinsic attribute entries', ()
   assert.deepEqual(result.errors, []);
   assert.deepEqual(projectPortableEvents(exportStarterTonicAes(doc)), projectPortableEvents(result.events));
 });
+
+test('starter tonic retains untouched events and source spans during an unrelated write', () => {
+  const source = 'aeon:mode = "transport"\n\nfolder = { notes = ["λ", "é"] }\n<panel("guide")>';
+  const doc = createStarterTonicFromAeon(source);
+  const before = exportStarterTonicAes(doc);
+  const folder = doc.getValue('folder');
+  assert.ok(folder);
+  doc.set('written', true);
+
+  assert.equal(doc.getValue('folder'), folder);
+  const after = exportStarterTonicAes(doc);
+  for (const [index, original] of before.entries()) {
+    assert.equal(after[index], original);
+  }
+  assert.equal(source.slice(folder.span.start.offset, folder.span.end.offset), '{ notes = ["λ", "é"] }');
+});
+
+test('starter tonic retains structured header metadata and validates its identities on writes', () => {
+  const source = String.raw`aeon:header={version\VER\:number=2,info={<card("header child")>}}
+<panel("body")>`;
+  const doc = createStarterTonicFromAeon(source);
+  const version = exportStarterTonicAes(doc).find((event) => event.key === 'aeon:version');
+  assert.equal(version?.structuralId, 'VER');
+  assert.equal(version.datatype, 'number');
+
+  doc.set('published', true);
+  assert.equal(exportStarterTonicAes(doc).find((event) => event.key === 'aeon:version'), version);
+  const text = exportStarterTonicAeon(doc, {trailingNewline: true}).text;
+  assert.ok(text.endsWith('\n'));
+  const replay = compile(text);
+  assert.deepEqual(replay.errors, []);
+  const replayedVersion = replay.events.find((event) => event.key === 'aeon:version');
+  assert.equal(replayedVersion?.structuralId, 'VER');
+  assert.equal(replayedVersion.datatype, 'number');
+
+  const replacement = createStarterTonicFromAeon(String.raw`<panel\VER\("replacement")>`).getValue('panel');
+  assert.ok(replacement);
+  assert.throws(() => doc.setParsed('panel', replacement), /DUPLICATE_STRUCTURAL_IDENTITY/);
+  assert.equal(exportStarterTonicAeon(doc, {trailingNewline: true}).text, text);
+});
+
+test('starter tonic leaves the source plane unset for ambiguous native prefix keys', () => {
+  const input = compile('"aeon:cards"={<card("body")>}\n<panel>');
+  assert.deepEqual(input.errors, []);
+  const native = input.events.map(({sourcePlane: _plane, ...event}) => event);
+  const doc = createStarterTonicFromAes(native);
+  const exported = exportStarterTonicAes(doc);
+  assert.equal(exported.find((event) => event.key === 'aeon:cards')?.sourcePlane, undefined);
+  assert.deepEqual(projectPortableEvents(exported, {headerFieldNames: []}), projectPortableEvents(input.events));
+});
+
+test('starter tonic retains header fields that require a structured spelling', () => {
+  const source = 'aeon:header={"app name"="example",header={nested=1}}\n<panel>';
+  const doc = createStarterTonicFromAeon(source);
+  doc.set('published', true);
+  const replay = compile(exportStarterTonicAeon(doc).text);
+  assert.deepEqual(replay.errors, []);
+  const header = (events: typeof replay.events) => events
+    .filter((event) => event.sourcePlane === 'header')
+    .map((event) => [event.key, event.value.type]);
+  assert.deepEqual(header(replay.events), header(compile(source).events));
+});
