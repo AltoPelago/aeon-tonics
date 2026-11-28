@@ -68,12 +68,20 @@ test('a labelled native body occurrence can match an unlabelled legacy event at 
   const before = compile('"aeon:demo"="before"').events;
   const after = compile('"aeon:demo"="after"').events;
   const legacy = before.map(({sourcePlane: _plane, ...event}) => event);
-  assert.deepEqual(diffAes(before, legacy).changes, []);
-  assert.deepEqual(diffAes(legacy, before).changes, []);
-  const patch = createAesPatch(diffAes(before, after));
-  const result = applyAesPatch(legacy, patch);
-  assert.equal(result.ok, true);
-  assert.deepEqual(diffAes(result.events, after).changes, []);
+  for (const includeHeaders of [true, false]) {
+    const options = { includeHeaders };
+    const unchanged = diffAes(before, legacy, options);
+    assert.deepEqual(unchanged.changes, []);
+    assert.deepEqual(diffAes(legacy, before, options).changes, []);
+    const noOp = applyAesPatch(before, createAesPatch(unchanged));
+    assert.equal(noOp.ok, true);
+    assert.deepEqual(noOp.events, before);
+
+    const patch = createAesPatch(diffAes(before, after, options));
+    const result = applyAesPatch(legacy, patch, options);
+    assert.equal(result.ok, true);
+    assert.deepEqual(diffAes(result.events, after).changes, []);
+  }
   const [body] = before;
   assert.ok(body);
   const changed = diffAes([{...body, sourcePlane: 'header'}], before).changes[0];

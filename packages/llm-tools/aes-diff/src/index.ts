@@ -266,8 +266,10 @@ export function diffAes<TEvent extends AesEvent>(
   options: DiffAesOptions = {},
 ): AesDiffResult<TEvent> {
   const resolvedOptions = { ...DEFAULT_OPTIONS, ...options };
-  const before = indexEvents('before', beforeEvents, resolvedOptions);
-  const after = indexEvents('after', afterEvents, resolvedOptions);
+  const before = indexEvents('before', beforeEvents, resolvedOptions,
+    resolvedOptions.includeHeaders ? undefined : nativePlaneHints(afterEvents));
+  const after = indexEvents('after', afterEvents, resolvedOptions,
+    resolvedOptions.includeHeaders ? undefined : nativePlaneHints(beforeEvents));
   const diagnostics = [...before.diagnostics, ...after.diagnostics];
   const paths = [...new Set([...before.events.keys(), ...after.events.keys()])].sort();
   const changes: AesChange<TEvent>[] = [];
@@ -447,7 +449,10 @@ export function applyAesPatch<TEvent extends AesEvent>(
     };
   }
 
-  const indexed = indexEvents('before', baseEvents, resolvedOptions);
+  const legacyPlaneHints = resolvedOptions.includeHeaders ? undefined : nativePlaneHints(
+    patch.operations.flatMap((operation) => operation.op === 'add' ? [] : [operation.before]),
+  );
+  const indexed = indexEvents('before', baseEvents, resolvedOptions, legacyPlaneHints);
   const diagnostics: AesDiffDiagnostic[] = [...indexed.diagnostics];
   const next = new Map([...indexed.events.entries()].map(([path, entry]) => [path, entry.event]));
 
@@ -601,17 +606,33 @@ function alignLegacyPlane(
   return header === semantic.header ? semantic : { ...semantic, header };
 }
 
+// A counterpart provides a plane hint only when its explicit records agree at that path.
+function nativePlaneHints(events: readonly AesEvent[]): ReadonlyMap<string, boolean | null> {
+  const planes = new Map<string, boolean | null>();
+  for (const event of events) {
+    if (isPortableRecord(event) || event.sourcePlane === undefined) continue;
+    const member = event.path.segments[1];
+    if (member?.type !== 'member' || !member.key.startsWith('aeon:')) continue;
+    const path = aesEventPath(event);
+    const header = event.sourcePlane === 'header';
+    const previous = planes.get(path);
+    planes.set(path, previous === undefined || previous === header ? header : null);
+  }
+  return planes;
+}
+
 function indexEvents<TEvent extends AesEvent>(
   side: 'before' | 'after',
   events: readonly TEvent[],
   options: Required<DiffAesOptions>,
+  legacyPlaneHints?: ReadonlyMap<string, boolean | null>,
 ): IndexedEvents<TEvent> {
   const indexed = new Map<string, NormalizedEvent<TEvent>>();
   const diagnostics: AesDiffDiagnostic[] = [];
 
   for (const event of events) {
     const path = aesEventPath(event);
-    if (!options.includeHeaders && isHeaderEvent(event, path)) {
+    if (!options.includeHeaders && isHeaderEvent(event, path, legacyPlaneHints?.get(path) ?? undefined)) {
       continue;
     }
     if (!matchesPathFilters(path, options.pathFilters)) {
@@ -849,9 +870,9 @@ function aesEventPath(event: AesEvent): string {
   return formatPath(event.path);
 }
 
-function isHeaderEvent(event: AesEvent, path: string): boolean {
+function isHeaderEvent(event: AesEvent, path: string, legacyHeaderHint?: boolean): boolean {
   if (isPortableRecord(event)) return typeof event.header === 'string';
-  return event.sourcePlane === undefined ? isHeaderPath(path) : event.sourcePlane === 'header';
+  return event.sourcePlane === undefined ? (legacyHeaderHint ?? isHeaderPath(path)) : event.sourcePlane === 'header';
 }
 
 function isHeaderPath(path: string): boolean {
