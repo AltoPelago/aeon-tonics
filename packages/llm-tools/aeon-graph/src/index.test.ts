@@ -101,6 +101,30 @@ test('graphAesEvents connects directly indexed children and named attributes to 
   ]);
 });
 
+test('formatAeonGraphText keeps repeated spaces in quoted node paths', () => {
+  const compiled = compile('<"panel  title">');
+  assert.deepEqual(compiled.errors, []);
+  const graph = graphAesEvents(compiled.events, { file: 'sample  file.aeon' });
+  const text = formatAeonGraphText({format:'aeon.graph', version:1, ...graph, diagnostics:[]});
+  assert.match(text, /node sample  file\.aeon \$\.\["panel  title"\] node/u);
+});
+
+test('graphAeonFiles collects containment and reference edges for projected attributes', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aeon-graph-'));
+  const file = join(dir, 'attributes.aeon');
+  const keys = Array.from({length: 8}, (_, index) => `field${index}`);
+  const paths = keys.map((key) => `$.panel.@.${key}`);
+  const attributes = keys.map((key) => `${key} = ~base`);
+  await writeFile(file, `base = "shared"\n<panel@{${attributes.join(', ')}}>`, 'utf8');
+
+  const graph = await graphAeonFiles([file], { compileOptions: { maxEvents: 2 } });
+  assert.deepEqual(graph.diagnostics, []);
+  assert.deepEqual(graph.edges.map(({from, to, kind}) => [from, to, kind]), [
+    ...paths.map((path) => ['$.panel', path, 'contains']),
+    ...paths.map((path) => [path, '$.base', 'clone']),
+  ]);
+});
+
 test('graphAeonFiles discovers files and filters incoming references', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-graph-'));
   const nested = join(dir, 'nested');

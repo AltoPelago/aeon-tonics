@@ -103,8 +103,8 @@ export async function graphAeonFiles(
       continue;
     }
     const graph = graphAesEvents(compiled.events, { file });
-    nodes.push(...graph.nodes);
-    edges.push(...graph.edges);
+    for (const node of graph.nodes) nodes.push(node);
+    for (const edge of graph.edges) edges.push(edge);
   }
 
   return filterGraph({
@@ -173,7 +173,7 @@ export function formatAeonGraphText(result: AeonGraphResult): string {
       node.path,
       node.kind,
       node.datatype ? `:${node.datatype}` : '',
-    ].join(' ').replace(/\s+/g, ' ').trim()),
+    ].filter(Boolean).join(' ')),
     ...result.edges.map((edge) => `edge ${edge.file} ${edge.from} -${edge.kind}-> ${edge.to}`),
     ...result.diagnostics.map((diagnostic) => `${diagnostic.file}${diagnostic.path === undefined ? '' : ` ${diagnostic.path}`} ${diagnostic.code}: ${diagnostic.message}`),
   ];
