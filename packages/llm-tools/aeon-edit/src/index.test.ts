@@ -489,3 +489,15 @@ test('whole-node edit plans include intrinsic content and metadata in their expe
     assert.equal(stale.preflight?.diagnostics[0]?.code, 'EXPECTATION_MISMATCH');
   }
 });
+
+test('whole-node guards preserve attribute reference paths from the edited document', () => {
+  for (const ref of ['~', '~>']) {
+    const source = `aeon:mode="strict"\nfirst:string="one"\nsecond:string="two"\n<panel@{owner@{target:string=${ref}first}:string="nested"}>`;
+    const result = planAeonEditSet(source, '$.panel', '<panel("after")>');
+    const { operations } = result.value as { operations: readonly AeonEditBatchOperation[] };
+    assert.equal(applyAeonEditBatch(source, operations).ok, true);
+    const stale = applyAeonEditBatch(source.replace(`${ref}first`, `${ref}second`), operations);
+    assert.equal(stale.ok, false);
+    assert.equal(stale.preflight?.diagnostics[0]?.code, 'EXPECTATION_MISMATCH');
+  }
+});

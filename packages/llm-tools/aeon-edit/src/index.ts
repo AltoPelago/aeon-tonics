@@ -1,5 +1,6 @@
 import {
   createTitonicFromAeon,
+  createTitonicFromAes,
   exportTitonicAeon,
   exportTitonicAes,
   getTitonicAttribute,
@@ -32,11 +33,15 @@ import { compactAeon, type CompactCommentMode } from '../../../export/compactor/
 import { convertAeonMode, type AeonModeConversionTarget } from '../../../export/mode-converter/dist/index.js';
 import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
 import type { AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { tokenize } from '../../../../../aeon/implementations/typescript/packages/lexer/dist/index.js';
+import { parse } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import {
   exportTelex,
   projectPortableEvents,
   TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
 } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+
+const DEFAULT_MAX_ATTRIBUTE_DEPTH = 2;
 
 export interface AeonEditOptions {
   readonly maxAttributeDepth?: number;
@@ -184,7 +189,7 @@ export function parseAeonEditPath(input: string): readonly TitonicPathSegment[] 
 
 export function loadAeonDocument(source: string, options: AeonEditOptions = {}): TitonicObject {
   return createTitonicFromAeon(source, {
-    maxAttributeDepth: options.maxAttributeDepth ?? 2,
+    maxAttributeDepth: options.maxAttributeDepth ?? DEFAULT_MAX_ATTRIBUTE_DEPTH,
   });
 }
 
@@ -925,7 +930,7 @@ function preflightValueExpectation(
   if (!current.exists) {
     return [];
   }
-  return titonicValuesEqual(current.value, parseAeonValueSnippet(operation.expect))
+  return titonicValuesEqual(current.value, parseAeonExpectationSnippet(operation.expect))
     ? []
     : [batchDiagnostic('error', 'EXPECTATION_MISMATCH', index, operation, `Expected path value did not match: ${operation.path}`)];
 }
@@ -1319,6 +1324,39 @@ function parseAeonValueSnippet(snippet: string): TitonicValue {
   const datatype = inferSnippetDatatype(trimmed);
   const document = createTitonicFromAeon(`aeon:mode = "strict"\n__value__:${datatype} = ${trimmed}`);
   return getTitonicValue(document, ['__value__']);
+}
+
+function parseAeonExpectationSnippet(snippet: string): TitonicValue {
+  const trimmed = snippet.trim();
+  const isNode = trimmed.startsWith('<');
+  const input = isNode ? trimmed : `__value__:${inferSnippetDatatype(trimmed)} = ${trimmed}`;
+  const lexed = tokenize(input, { includeComments: false });
+  if (lexed.errors.length > 0) {
+    throw new Error(`Invalid AEON value guard: ${lexed.errors[0]!.message}`);
+  }
+  const parsed = parse(lexed.tokens, { maxAttributeDepth: DEFAULT_MAX_ATTRIBUTE_DEPTH });
+  if (parsed.errors.length > 0) {
+    throw new Error(`Invalid AEON value guard: ${parsed.errors[0]!.message}`);
+  }
+  const bindings = parsed.document?.bindings;
+  if (bindings?.length !== 1 || parsed.document?.header || parsed.document?.envelope) {
+    throw new Error('Expected one AEON value in the guard.');
+  }
+  const binding = bindings[0]!;
+  if (isNode ? binding.value.type !== 'NodeLiteral' : binding.key !== '__value__') {
+    throw new Error('Expected one AEON value in the guard.');
+  }
+
+  // Guard metadata can refer to paths in the edited document. Preserve its
+  // reference syntax here so it can be compared without resolving it in isolation.
+  const document = createTitonicFromAes([{
+    path: { segments: [{ type: 'root' }, { type: 'member', key: binding.key }] },
+    key: binding.key,
+    value: binding.value,
+    span: binding.span,
+    sourcePlane: 'body',
+  }], { requireStrictMode: false });
+  return getTitonicValue(document, [binding.key]);
 }
 
 function parseAeonAttributeEntrySnippet(snippet: string): AttributeEntry {
