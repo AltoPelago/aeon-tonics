@@ -64,6 +64,22 @@ test('excluding headers retains explicitly body-scoped aeon-prefixed nodes', () 
   }
 });
 
+test('a labelled native body occurrence can match an unlabelled legacy event at the same path', () => {
+  const before = compile('"aeon:demo"="before"').events;
+  const after = compile('"aeon:demo"="after"').events;
+  const legacy = before.map(({sourcePlane: _plane, ...event}) => event);
+  assert.deepEqual(diffAes(before, legacy).changes, []);
+  assert.deepEqual(diffAes(legacy, before).changes, []);
+  const patch = createAesPatch(diffAes(before, after));
+  const result = applyAesPatch(legacy, patch);
+  assert.equal(result.ok, true);
+  assert.deepEqual(diffAes(result.events, after).changes, []);
+  const [body] = before;
+  assert.ok(body);
+  const changed = diffAes([{...body, sourcePlane: 'header'}], before).changes[0];
+  assert.deepEqual(changed?.kind === 'changed' ? changed.delta.parts : [], ['header']);
+});
+
 test('portable datatype components are classified as datatype changes', () => {
   const diff = diffAes(
     [{ path: '$.a', kind: 'SeparatorLiteral', datatype: 'csv', clarifiers: [{ kind: 'StringLiteral', value: '.' }], value: 'one.two' }],

@@ -291,7 +291,10 @@ export function diffAes<TEvent extends AesEvent>(
       continue;
     }
 
-    const delta = compareEvents(beforeEvent.semantic, afterEvent.semantic);
+    const delta = compareEvents(
+      alignLegacyPlane(beforeEvent.event, beforeEvent.semantic, afterEvent.event),
+      alignLegacyPlane(afterEvent.event, afterEvent.semantic, beforeEvent.event),
+    );
     if (delta.parts.length === 0) {
       unchanged += 1;
       continue;
@@ -582,7 +585,20 @@ function eventsMatch<TEvent extends AesEvent>(
   path: string,
   options: Required<DiffAesOptions>,
 ): boolean {
-  return stableStringify(normalizeEvent(path, left, options)) === stableStringify(normalizeEvent(path, right, options));
+  const before = alignLegacyPlane(left, normalizeEvent(path, left, options), right);
+  const after = alignLegacyPlane(right, normalizeEvent(path, right, options), left);
+  return stableStringify(before) === stableStringify(after);
+}
+
+function alignLegacyPlane(
+  event: AesEvent,
+  semantic: NormalizedSemanticEvent,
+  counterpart: AesEvent,
+): NormalizedSemanticEvent {
+  if (isPortableRecord(event) || isPortableRecord(counterpart)
+    || event.sourcePlane !== undefined || counterpart.sourcePlane === undefined) return semantic;
+  const header = counterpart.sourcePlane === 'header';
+  return header === semantic.header ? semantic : { ...semantic, header };
 }
 
 function indexEvents<TEvent extends AesEvent>(
