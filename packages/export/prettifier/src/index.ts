@@ -57,8 +57,8 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
 }
 
 function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): string {
-  if (event.value.type === 'NodeLiteral') return renderNode(event.value, context, 0);
   const segment = event.path.segments[1] as RootMemberSegment;
+  if (event.value.type === 'NodeLiteral') return renderNode(event.value, context, 0, segment.key);
   const aeonShortcutHeader = event.sourcePlane === undefined
     ? segment.key.startsWith('aeon:') : event.sourcePlane === 'header';
   const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
@@ -144,12 +144,15 @@ function renderBinding(
   context: RenderContext,
   depth: number,
 ): string {
-  if (value.type === 'NodeLiteral') return renderNode(value, context, depth);
+  if (value.type === 'NodeLiteral') return renderNode(value, context, depth, key);
   const type = formatDatatype(datatype);
   return `${formatBindingKey(key, type)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes, context, depth)}${type} = ${renderValue(value, context, depth)}`;
 }
 
-function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number): string {
+function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number, key = value.tag): string {
+  if (key !== value.tag) {
+    throw new Error(`Node tag ${JSON.stringify(value.tag)} must match its key ${JSON.stringify(key)}.`);
+  }
   const structuralId = renderStructuralIdentity(value.structuralId);
   const attrs = renderAttributes(value.attributes, context, depth);
   const datatype = formatDatatype(value.datatype);
@@ -192,7 +195,7 @@ function renderAttributes(
     .map((attribute) => {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
-          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth);
+          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key);
           const datatype = formatDatatype(entry.datatype);
           const nested = renderAttributes(entry.attributes, context, depth);
           return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${nested}${datatype} = ${renderValue(entry.value, context, depth)}`;
@@ -204,7 +207,7 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry, context: RenderContext, depth: number): string {
-  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth);
+  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key);
   const datatype = renderEventDatatype(entry.datatype);
   return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations, context, depth)}${datatype} = ${renderValue(entry.value, context, depth)}`;
 }

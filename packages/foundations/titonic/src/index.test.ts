@@ -503,10 +503,17 @@ test('titonic can create and replace node literals via titonicElement()', () => 
     view.datatype = 'contact';
   }, /strict-mode node heads only accept datatype "node"/);
 
+  assert.throws(
+    () => exportTitonicAeon(titonic),
+    /Node tag "section" must match its key "view"/,
+  );
+  titonic.section = titonicElement('section', view.children, { datatype: 'node' });
+  delete titonic.view;
+
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<section:node(<span:node("updated")>)>',
+    'aeon:mode="strict"\n<section:node(<span:node("updated")>)>',
   );
 });
 

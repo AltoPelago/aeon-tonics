@@ -41,8 +41,8 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
 }
 
 function renderTopLevelBinding(event: AssignmentEvent): string {
-  if (event.value.type === 'NodeLiteral') return renderNode(event.value);
   const segment = event.path.segments[1] as RootMemberSegment;
+  if (event.value.type === 'NodeLiteral') return renderNode(event.value, segment.key);
   const aeonShortcutHeader = event.sourcePlane === undefined
     ? segment.key.startsWith('aeon:') : event.sourcePlane === 'header';
   const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
@@ -99,12 +99,15 @@ function renderBinding(
   attributes: readonly Attribute[],
   structuralId: string | null,
 ): string {
-  if (value.type === 'NodeLiteral') return renderNode(value);
+  if (value.type === 'NodeLiteral') return renderNode(value, key);
   const type = formatDatatype(datatype);
   return `${formatBindingKey(key, type)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes)}${type}=${renderValue(value)}`;
 }
 
-function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
+function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, key = value.tag): string {
+  if (key !== value.tag) {
+    throw new Error(`Node tag ${JSON.stringify(value.tag)} must match its key ${JSON.stringify(key)}.`);
+  }
   const structuralId = renderStructuralIdentity(value.structuralId);
   const attrs = renderAttributes(value.attributes);
   const datatype = formatDatatype(value.datatype);
@@ -135,7 +138,7 @@ function renderAttributes(
     .map((attribute) => {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
-          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value);
+          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, key);
           const datatype = formatDatatype(entry.datatype);
           const nested = renderAttributes(entry.attributes);
           return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${nested}${datatype}=${renderValue(entry.value)}`;
@@ -147,7 +150,7 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry): string {
-  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value);
+  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, key);
   const datatype = renderDatatype(entry.datatype);
   return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations)}${datatype}=${renderValue(entry.value)}`;
 }

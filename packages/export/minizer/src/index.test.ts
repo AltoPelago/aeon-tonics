@@ -4,6 +4,16 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { minimize } from './index.js';
 
+test('minimize rejects a native node whose named key differs from its tag', () => {
+  const [event] = compile('<section>').events;
+  assert.ok(event);
+  const mismatched = {
+    ...event,
+    path: { segments: [{type: 'root'}, {type: 'member', key: 'view'}] } as const,
+  };
+  assert.throws(() => minimize([mismatched]), /Node tag "section" must match its key "view"/);
+});
+
 test("minimize keeps a node child's trimtick kind and payload", () => {
   const source = 'aeon:mode="strict"\n<tag(:trimtick=>`\n    a\\`b\n  c\\\\d\n `)>';
   const before = compile(source);
