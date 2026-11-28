@@ -517,6 +517,21 @@ test('nested node guards preserve references when their tags match external keys
   }
 });
 
+test('node guards compare references inside compound attribute values', () => {
+  for (const metadata of [
+    'details:object={target:string=~>outside}',
+    'details:list=[~>outside]',
+    '<details(<inner@{target:string=~>outside}>)>',
+  ]) {
+    const source = `aeon:mode="strict"\noutside:string="value"\nother:string="value"\n<panel@{${metadata}}>`;
+    const result = planAeonEditSet(source, '$.panel', '<panel("after")>');
+    const { operations } = result.value as { operations: readonly AeonEditBatchOperation[] };
+    assert.equal(applyAeonEditBatch(source, operations).ok, true);
+    assert.equal(preflightAeonEditBatch(source.replace('~>outside', '~>other'), operations).diagnostics[0]?.code,
+      'EXPECTATION_MISMATCH');
+  }
+});
+
 test('value guards enforce strict datatype assertions before edits', () => {
   const source = 'aeon:mode="strict"\nbox:object={label:string="before"}\n<panel("before")>';
   assert.throws(() => applyAeonEditBatch(source, [

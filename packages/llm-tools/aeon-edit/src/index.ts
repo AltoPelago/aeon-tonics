@@ -38,6 +38,7 @@ import {
   formatPath,
   type AttributeEntry,
 } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import type { Attribute, Value } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import {
   compile,
   exportTelex,
@@ -1345,7 +1346,7 @@ function parseAeonExpectationSnippet(snippet: string): TitonicValue {
     const referencePaths = new Set<string>();
     for (const event of compiled.events) {
       if (event.sourcePlane !== 'header' && event.value.type === 'NodeLiteral') {
-        collectAttributeReferencePaths(event.annotations, formatPath(event.path), referencePaths);
+        collectAttributeReferencePaths(event.value.attributes, formatPath(event.path), referencePaths);
       }
     }
     const errors = compiled.errors.filter((error) => {
@@ -1373,16 +1374,43 @@ function parseAeonExpectationSnippet(snippet: string): TitonicValue {
 }
 
 function collectAttributeReferencePaths(
-  entries: ReadonlyMap<string, AttributeEntry> | undefined,
+  attributes: readonly Attribute[],
   owner: string,
   paths: Set<string>,
 ): void {
-  for (const [key, entry] of entries ?? []) {
-    const path = appendPathMember(`${owner}.@`, key);
-    if (entry.value.type === 'CloneReference' || entry.value.type === 'PointerReference') {
-      paths.add(path);
+  for (const attribute of attributes) {
+    for (const [key, entry] of attribute.entries) {
+      const path = appendPathMember(`${owner}.@`, key);
+      collectAttributeReferencePaths(entry.attributes, path, paths);
+      collectReferencesInMetadata(entry.value, path, paths);
     }
-    collectAttributeReferencePaths(entry.annotations, path, paths);
+  }
+}
+
+function collectReferencesInMetadata(value: Value, path: string, paths: Set<string>): void {
+  if ('attributes' in value) collectAttributeReferencePaths(value.attributes, path, paths);
+  switch (value.type) {
+    case 'CloneReference':
+    case 'PointerReference':
+      paths.add(path);
+      break;
+    case 'TypedValue':
+      collectReferencesInMetadata(value.value, path, paths);
+      break;
+    case 'ObjectNode':
+      for (const binding of value.bindings) {
+        const member = appendPathMember(path, binding.key);
+        collectAttributeReferencePaths(binding.attributes, member, paths);
+        collectReferencesInMetadata(binding.value, member, paths);
+      }
+      break;
+    case 'NodeLiteral':
+      value.children.forEach((child, index) => collectReferencesInMetadata(child, `${path}[${index}]`, paths));
+      break;
+    case 'ListNode':
+    case 'TupleLiteral':
+      value.elements.forEach((child, index) => collectReferencesInMetadata(child, `${path}[${index}]`, paths));
+      break;
   }
 }
 
