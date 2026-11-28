@@ -1,11 +1,18 @@
-import type { AssignmentEvent, AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { buildAnnotations, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import type {
-  Attribute,
-  ReferencePathSegment,
-  TypeAnnotation,
-  Value,
+import {
+  formatClarifierValue,
+  type Attribute,
+  type ReferencePathSegment,
+  type TypeAnnotation,
+  type Value,
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
+
+interface NodeHead {
+  readonly structuralId?: string | null | undefined;
+  readonly datatype?: string | undefined;
+  readonly annotations?: ReadonlyMap<string, AttributeEntry> | undefined;
+}
 
 export interface PrettifyOptions {
   readonly indent?: string;
@@ -58,7 +65,11 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
 
 function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): string {
   const segment = event.path.segments[1] as RootMemberSegment;
-  if (event.value.type === 'NodeLiteral') return renderNode(event.value, context, 0, segment.key);
+  if (event.value.type === 'NodeLiteral') return renderNode(event.value, context, 0, segment.key, {
+    structuralId: event.structuralId,
+    datatype: renderEventDatatype(event.datatype),
+    annotations: event.annotations,
+  });
   const aeonShortcutHeader = event.sourcePlane === undefined
     ? segment.key.startsWith('aeon:') : event.sourcePlane === 'header';
   const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
@@ -70,6 +81,10 @@ function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): 
 function renderValue(value: Value, context: RenderContext, depth: number): string {
   switch (value.type) {
     case 'TypedValue':
+      if (value.value.type === 'NodeLiteral') {
+        const head = parserNodeHead(value.structuralId, value.datatype, value.attributes);
+        return renderNode(value.value, context, depth, value.value.tag, head);
+      }
       return `${renderStructuralIdentity(value.structuralId)}${renderAttributes(value.attributes, context, depth)}${formatDatatype(value.datatype)} = ${renderValue(value.value, context, depth)}`;
     case 'StringLiteral':
       return value.trimticks ? '>' + formatString(value.trimticks.rawValue, '`') : formatString(value.value);
@@ -144,18 +159,25 @@ function renderBinding(
   context: RenderContext,
   depth: number,
 ): string {
-  if (value.type === 'NodeLiteral') return renderNode(value, context, depth, key);
+  if (value.type === 'NodeLiteral') return renderNode(value, context, depth, key, parserNodeHead(structuralId, datatype, attributes));
   const type = formatDatatype(datatype);
   return `${formatBindingKey(key, type)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes, context, depth)}${type} = ${renderValue(value, context, depth)}`;
 }
 
-function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number, key = value.tag): string {
+function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number, key = value.tag, head?: NodeHead): string {
   if (key !== value.tag) {
     throw new Error(`Node tag ${JSON.stringify(value.tag)} must match its key ${JSON.stringify(key)}.`);
   }
-  const structuralId = renderStructuralIdentity(value.structuralId);
-  const attrs = renderAttributes(value.attributes, context, depth);
-  const datatype = formatDatatype(value.datatype);
+  const nodeDatatype = formatDatatype(value.datatype);
+  if (value.structuralId != null && head?.structuralId != null && value.structuralId !== head.structuralId) {
+    throw new Error('Conflicting structural identities on an intrinsic node.');
+  }
+  if (nodeDatatype && head?.datatype && nodeDatatype !== head.datatype) {
+    throw new Error('Conflicting datatypes on an intrinsic node.');
+  }
+  const structuralId = renderStructuralIdentity(value.structuralId ?? head?.structuralId);
+  const datatype = nodeDatatype || head?.datatype || '';
+  const attrs = renderNodeAttributes(value.attributes, head?.annotations, context, depth);
   if (value.children.length === 0) {
     return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}>`;
   }
@@ -166,6 +188,49 @@ function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: Ren
     .map((child) => `${indent(context, depth + 1)}${renderValue(child, context, depth + 1)}`)
     .join(',\n');
   return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
+}
+
+function parserNodeHead(
+  structuralId: string | null,
+  datatype: TypeAnnotation | null,
+  attributes: readonly Attribute[],
+): NodeHead | undefined {
+  if (!structuralId && !datatype && attributes.length === 0) return undefined;
+  return { structuralId, datatype: formatDatatype(datatype), annotations: buildAnnotations(attributes) };
+}
+
+function renderNodeAttributes(
+  attributes: readonly Attribute[],
+  annotations: ReadonlyMap<string, AttributeEntry> | undefined, context: RenderContext, depth: number,
+): string {
+  if (!annotations?.size) return renderAttributes(attributes, context, depth);
+  if (attributes.length === 0) return renderAnnotations(annotations, context, depth);
+
+  // Native event maps can repeat intrinsic attributes or supply binding attributes.
+  const intrinsic = buildAnnotations(attributes);
+  const additional = new Map<string, AttributeEntry>();
+  for (const [key, entry] of annotations) {
+    const existing = intrinsic.get(key);
+    if (!existing) {
+      additional.set(key, entry);
+    } else if (!sameAnnotation(existing, entry, context, depth)) {
+      throw new Error(`Conflicting attribute ${JSON.stringify(key)} on an intrinsic node.`);
+    }
+  }
+  if (additional.size === 0) return renderAttributes(attributes, context, depth);
+  for (const [key, entry] of intrinsic) additional.set(key, entry);
+  return renderAnnotations(additional, context, depth);
+}
+
+function sameAnnotation(left: AttributeEntry, right: AttributeEntry, context: RenderContext, depth: number): boolean {
+  if (left.value !== right.value && renderValue(left.value, context, depth) !== renderValue(right.value, context, depth)) return false;
+  if ((left.structuralId ?? null) !== (right.structuralId ?? null)
+    || left.datatype !== right.datatype || (left.annotations?.size ?? 0) !== (right.annotations?.size ?? 0)) return false;
+  for (const [key, child] of left.annotations ?? []) {
+    const counterpart = right.annotations?.get(key);
+    if (!counterpart || !sameAnnotation(child, counterpart, context, depth)) return false;
+  }
+  return true;
 }
 
 function renderAnnotations(
@@ -195,7 +260,7 @@ function renderAttributes(
     .map((attribute) => {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
-          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key);
+          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key, parserNodeHead(entry.structuralId, entry.datatype, entry.attributes));
           const datatype = formatDatatype(entry.datatype);
           const nested = renderAttributes(entry.attributes, context, depth);
           return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${nested}${datatype} = ${renderValue(entry.value, context, depth)}`;
@@ -207,7 +272,11 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry, context: RenderContext, depth: number): string {
-  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key);
+  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key, {
+    structuralId: entry.structuralId,
+    datatype: renderEventDatatype(entry.datatype),
+    annotations: entry.annotations,
+  });
   const datatype = renderEventDatatype(entry.datatype);
   return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations, context, depth)}${datatype} = ${renderValue(entry.value, context, depth)}`;
 }
@@ -228,7 +297,7 @@ function formatDatatype(
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
   const clarifiers = datatype.clarifiers.length > 0
-    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+    ? `[${datatype.clarifiers.map(formatClarifierValue).join(', ')}]`
     : '';
   return `:${datatype.name}${generics}${clarifiers}`;
 }

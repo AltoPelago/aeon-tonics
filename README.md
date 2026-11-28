@@ -206,8 +206,8 @@ Core examples:
 
 The export formatters write intrinsic node declarations directly in named and
 indexed scopes. A named node supplied through the native event API must use its
-tag as the key. Compactor retains the authored layout when compacting a
-document with nodes would move a selected semantic comment. Use
+tag as the key. Export places compatible binding metadata on the node and\nreports conflicting metadata. Compactor retains the authored layout when
+compacting a document with nodes would move a selected semantic comment. Use
 `comments: 'none'` to compact without comments. When using the event-and-source
 API, supply matching events if comment preservation is required.
 

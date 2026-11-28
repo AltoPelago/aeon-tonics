@@ -4,6 +4,21 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { prettify, prettifyAeon } from './index.js';
 
+test('prettify renders native binding attributes on the intrinsic node', () => {
+  const [event] = compile('<section@{own="own"}>').events;
+  const [label] = compile('label="label"').events;
+  assert.ok(event && label);
+  const annotations = new Map(event.annotations);
+  annotations.set('label', {value: label.value});
+  const output = prettify([{...event, annotations}]).text;
+  const replay = compile(output);
+  assert.deepEqual(replay.errors, []);
+  assert.deepEqual([...replay.events[0]!.annotations!.keys()], ['label', 'own']);
+
+  annotations.set('own', {value: label.value});
+  assert.throws(() => prettify([{...event, annotations}]), /Conflicting attribute "own"/);
+});
+
 test('prettify rejects a native node whose named key differs from its tag', () => {
   const [event] = compile('<section>').events;
   assert.ok(event);

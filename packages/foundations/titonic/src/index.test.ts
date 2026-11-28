@@ -517,6 +517,17 @@ test('titonic can create and replace node literals via titonicElement()', () => 
   );
 });
 
+test('titonic exports binding and node attributes on the intrinsic declaration', () => {
+  const doc = createTitonicFromAeon('aeon:mode="strict"');
+  doc.section = titonicElement('section', ['hello'], {datatype: 'node'});
+  setTitonicAttribute(doc, ['section'], 'label', 'keep me', {datatype: 'string'});
+  setTitonicNodeAttribute(doc.section as TitonicElement, 'origin', 'AEON', {datatype: 'string'});
+
+  const text = exportTitonicAeon(doc, {trailingNewline: false});
+  assert.equal(text, 'aeon:mode="strict"\n<section@{label:string="keep me",origin:string="AEON"}:node("hello")>');
+  assert.equal((createTitonicFromAeon(text).section as TitonicElement).tag, 'section');
+});
+
 test('titonic supports pointer alias reads and writes for node values', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',

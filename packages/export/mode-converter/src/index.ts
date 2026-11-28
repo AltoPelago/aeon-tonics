@@ -1,15 +1,16 @@
 import { formatPath, resolveEventSubpath, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { formatReferenceTargetPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/reference-target.js';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import type {
-  Attribute,
-  AttributeValue,
-  Binding,
-  NodeLiteral,
-  ObjectNode,
-  ReferencePathSegment,
-  TypeAnnotation,
-  Value,
+import {
+  formatClarifierValue,
+  type Attribute,
+  type AttributeValue,
+  type Binding,
+  type NodeLiteral,
+  type ObjectNode,
+  type ReferencePathSegment,
+  type TypeAnnotation,
+  type Value,
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import { minimize } from '../../minizer/dist/index.js';
 
@@ -537,7 +538,7 @@ function formatDatatype(datatype: TypeAnnotation | null): string {
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
   const clarifiers = datatype.clarifiers.length > 0
-    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+    ? `[${datatype.clarifiers.map(formatClarifierValue).join(', ')}]`
     : '';
   return `${datatype.name}${generics}${clarifiers}`;
 }
