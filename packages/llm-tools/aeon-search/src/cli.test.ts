@@ -40,12 +40,12 @@ test('CLI prints runnable workflow references with --examples', async () => {
 test('CLI searches by kind in human mode', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-search-'));
   const file = join(dir, 'doc.aeon');
-  await writeFile(file, 'view:node = <panel:node>', 'utf8');
+  await writeFile(file, '<panel:node>', 'utf8');
 
   const result = await execFileAsync(process.execPath, [cliPath, file, '--kind', 'node']);
 
   assert.match(result.stdout, /AEON search: 1 matches, 0 diagnostics/);
-  assert.match(result.stdout, /\$\.view node :node = <panel>/);
+  assert.match(result.stdout, /\$\.panel node :node = <panel>/);
 });
 
 test('CLI can emit unique matched paths for downstream tooling', async () => {

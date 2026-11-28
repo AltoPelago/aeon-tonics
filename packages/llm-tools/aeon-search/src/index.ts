@@ -2,7 +2,6 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
   compile,
-  createPortableEventPathMap,
   projectPortableEvents,
   type AssignmentEvent,
   type CompileOptions,
@@ -33,6 +32,7 @@ export interface AeonSearchMatch {
   readonly path: string;
   readonly kind: string;
   readonly datatype?: string;
+  readonly tag?: string;
   readonly preview?: string;
 }
 
@@ -68,11 +68,7 @@ export async function searchAeonFiles(
       ...options.compileOptions,
     });
     if (compiled.errors.length > 0) {
-      const recovery = compiled.events.length > 0
-        ? compiled
-        : compile(source, { maxAttributeDepth: 2, ...options.compileOptions, recovery: true });
-      const pathMap = createPortableEventPathMap(recovery.events);
-      diagnostics.push(...compiled.errors.map((error) => searchDiagnostic(error, file, pathMap)));
+      diagnostics.push(...compiled.errors.map((error) => searchDiagnostic(error, file)));
       continue;
     }
     matches.push(...searchAesEvents(compiled.events, query, { file }));
@@ -92,9 +88,8 @@ export function searchAesEvents(
   options: { readonly file?: string } = {},
 ): readonly AeonSearchMatch[] {
   const portable = projectPortableEvents(events);
-  const valuesByPath = new Map(portable.map((event) => [event.path, event.value]));
   return portable
-    .map((event) => toSearchMatch(event, options.file ?? '', valuesByPath.get(`${event.path}[0]`)))
+    .map((event) => toSearchMatch(event, options.file ?? ''))
     .filter((match) => matchesQuery(match, query));
 }
 
@@ -107,7 +102,7 @@ export function formatAeonSearchText(result: AeonSearchResult): string {
       match.kind,
       match.datatype ? `:${match.datatype}` : '',
       match.preview ? `= ${match.preview}` : '',
-    ].join(' ').replace(/\s+/g, ' ').trim()),
+    ].filter(Boolean).join(' ')),
     ...result.diagnostics.map((diagnostic) => `${diagnostic.file}${diagnostic.path === undefined ? '' : ` ${diagnostic.path}`} ${diagnostic.code}: ${diagnostic.message}`),
   ];
   return lines.join('\n') + '\n';
@@ -117,14 +112,16 @@ export function formatAeonSearchPaths(result: AeonSearchResult): string {
   return `${uniqueSorted(result.matches.map((match) => match.path)).join('\n')}${result.matches.length === 0 ? '' : '\n'}`;
 }
 
-function toSearchMatch(event: PortableAesEvent, file: string, nodeTag?: string): AeonSearchMatch {
-  const datatype = typeof event.datatype === 'string' ? event.datatype : undefined;
-  const preview = event.kind === 'NodeLiteral' && nodeTag !== undefined ? `<${nodeTag}>` : previewValue(event);
+function toSearchMatch(event: PortableAesEvent, file: string): AeonSearchMatch {
+  const datatype = event.datatype;
+  const tag = event.tag;
+  const preview = previewValue(event);
   return {
     file,
     path: event.path,
     kind: eventKind(event),
     ...(datatype === undefined ? {} : { datatype }),
+    ...(tag === undefined ? {} : { tag }),
     ...(preview === undefined ? {} : { preview }),
   };
 }
@@ -147,9 +144,6 @@ function eventKind(event: PortableAesEvent): string {
   if (event.kind === 'NodeLiteral') {
     return 'node';
   }
-  if (event.kind === 'NodeHead') {
-    return 'node-head';
-  }
   if (event.kind === 'CloneReference' || event.kind === 'PointerReference') {
     return 'reference';
   }
@@ -160,14 +154,15 @@ function eventKind(event: PortableAesEvent): string {
 }
 
 function previewValue(event: PortableAesEvent): string | undefined {
+  if (event.kind === 'NodeLiteral' && event.tag !== undefined) {
+    const tag = /^[A-Za-z_][A-Za-z0-9_]*$/u.test(event.tag) ? event.tag : JSON.stringify(event.tag);
+    return `<${tag}>`;
+  }
   if (event.value === undefined) {
     return undefined;
   }
   if (event.kind === 'StringLiteral') {
     return JSON.stringify(event.value);
-  }
-  if (event.kind === 'NodeHead') {
-    return `<${event.value}>`;
   }
   if (event.kind === 'CloneReference') return `~${event.value}`;
   if (event.kind === 'PointerReference') return `~>${event.value}`;
@@ -201,28 +196,18 @@ function errorCode(error: unknown): string {
   return 'AEON_COMPILE_ERROR';
 }
 
-function searchDiagnostic(
-  error: unknown,
-  file: string,
-  pathMap: ReadonlyMap<string, string>,
-): AeonSearchDiagnostic {
+function searchDiagnostic(error: unknown, file: string): AeonSearchDiagnostic {
   const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
-  const sourcePath = typeof record.sourcePath === 'string'
+  const path = typeof record.sourcePath === 'string'
     ? record.sourcePath
     : typeof record.path === 'string' ? record.path : undefined;
   const targetPath = typeof record.targetPath === 'string' ? record.targetPath : undefined;
-  const portableSource = sourcePath === undefined ? undefined : (pathMap.get(sourcePath) ?? sourcePath);
-  const portableTarget = targetPath === undefined ? undefined : (pathMap.get(targetPath) ?? targetPath);
-  let message = error instanceof Error ? error.message : String(error);
-  for (const [native, portable] of [[sourcePath, portableSource], [targetPath, portableTarget]] as const) {
-    if (native !== undefined && portable !== undefined && native !== portable) message = message.replaceAll(native, portable);
-  }
   return {
     file,
     code: errorCode(error),
-    message,
-    ...(portableSource === undefined ? {} : { path: portableSource }),
-    ...(portableTarget === undefined ? {} : { targetPath: portableTarget }),
+    message: error instanceof Error ? error.message : String(error),
+    ...(path === undefined ? {} : { path }),
+    ...(targetPath === undefined ? {} : { targetPath }),
   };
 }
 

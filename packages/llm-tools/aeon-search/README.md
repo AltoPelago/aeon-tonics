@@ -27,9 +27,11 @@ aeon-search --examples
 
 The implementation recursively discovers `.aeon` files, compiles them to AES,
 and searches portable occurrence paths, values, datatypes, and broad value
-kinds. Node results include the explicit `NodeHead` level (`$.view[0]`) and
-content beneath it (`$.view[0][0]`); diagnostic path fields use the same
-address space. Use `--format paths` or `--paths` to emit a
+kinds. Search returns one `node` result with its intrinsic `tag`. In
+`<view@{title = "Main"}("hello")>`, the node is at `$.view`, its attribute
+is at `$.view.@.title`, and its first child is at `$.view[0]`. Diagnostic
+paths use those same addresses. The node preview includes the tag, so
+`--kind node --value '<view>'` matches this node. Use `--format paths` or `--paths` to emit a
 unique sorted path list that can be written directly to files for downstream tools like
 `aeon-lint --pointer-under-file ...` or `aeon-lint --clone-into-file ...`. Use `--out <file>` when
 you want the CLI to materialize that list itself instead of relying on shell redirection.
