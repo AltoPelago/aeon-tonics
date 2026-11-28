@@ -476,3 +476,16 @@ test('a plan for replacing a whole intrinsic node passes its own preflight', () 
   assert.equal(preflightAeonEditBatch(source, operations).ok, true);
   assert.equal(applyAeonEditBatch(source, operations).ok, true);
 });
+
+test('whole-node edit plans include intrinsic content and metadata in their expectation', () => {
+  const source = 'aeon:mode="strict"\n<panel\\PANEL\\@{id:string="old"}:node({<br:node>},(1,2))>';
+  const result = planAeonEditSet(source, '$.panel', '<panel("after")>');
+  const { operations } = result.value as { operations: readonly AeonEditBatchOperation[] };
+  assert.equal(preflightAeonEditBatch(source, operations).ok, true);
+  assert.equal(applyAeonEditBatch(source, operations).ok, true);
+  for (const staleSource of [source.replace('"old"', '"new"'), source.replace('PANEL', 'NEW')]) {
+    const stale = applyAeonEditBatch(staleSource, operations);
+    assert.equal(stale.ok, false);
+    assert.equal(stale.preflight?.diagnostics[0]?.code, 'EXPECTATION_MISMATCH');
+  }
+});

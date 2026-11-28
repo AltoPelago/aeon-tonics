@@ -886,6 +886,11 @@ export function deleteTitonicAttributeAnnotation(
   return deleted;
 }
 
+export function getTitonicNodeStructuralId(value: TitonicElement): string | undefined {
+  const node = getElementNode(value);
+  return node.headStructuralId ?? node.structuralId;
+}
+
 export function getTitonicNodeAttributes(
   value: TitonicElement,
 ): ReadonlyMap<string, AttributeEntry> | undefined {

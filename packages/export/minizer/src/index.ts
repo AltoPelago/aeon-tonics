@@ -221,7 +221,7 @@ function comparableAstFields(value: object): readonly (readonly [string, unknown
     && key !== 'raw' && key !== 'rawValue' && key !== 'delimiter');
 }
 
-function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
+export function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
   if (!annotations || annotations.size === 0) {
     return '';
   }

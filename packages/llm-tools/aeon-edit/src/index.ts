@@ -8,6 +8,7 @@ import {
   getTitonicNodeAttribute,
   getTitonicNodeAttributeAnnotation,
   getTitonicNodeAttributes,
+  getTitonicNodeStructuralId,
   getTitonicValue,
   isTitonicElement,
   setTitonicAttribute,
@@ -26,6 +27,7 @@ import {
   type TitonicPathSegment,
   type TitonicValue,
 } from '../../../foundations/titonic/dist/index.js';
+import { renderAnnotations } from '../../../export/minizer/dist/index.js';
 import { compactAeon, type CompactCommentMode } from '../../../export/compactor/dist/index.js';
 import { convertAeonMode, type AeonModeConversionTarget } from '../../../export/mode-converter/dist/index.js';
 import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
@@ -1332,11 +1334,15 @@ function parseAeonAttributeEntrySnippet(snippet: string): AttributeEntry {
 
 function renderTitonicValueSnippet(value: TitonicValue): string {
   if (isTitonicElement(value)) {
+    const id = getTitonicNodeStructuralId(value);
+    const identity = id ? `\\${id}\\` : '';
+    const attributes = renderAnnotations(getTitonicNodeAttributes(value));
     const datatype = value.datatype ? `:${value.datatype}` : '';
     const children = value.children.length > 0
       ? `(${value.children.map((child) => renderTitonicValueSnippet(child)).join(',')})`
       : '';
-    return `<${formatBindingKey(value.tag)}${datatype}${children}>`;
+    const tag = value.tag === 'aeon' && datatype ? formatString(value.tag) : formatBindingKey(value.tag);
+    return `<${tag}${identity}${attributes}${datatype}${children}>`;
   }
   if (Array.isArray(value)) {
     return `[${value.map((entry) => renderTitonicValueSnippet(entry)).join(',')}]`;
@@ -1367,7 +1373,8 @@ function renderTitonicValueSnippet(value: TitonicValue): string {
   }
   return `{${Object.keys(value).sort().map((key) => {
     const child = (value as TitonicObject)[key]!;
-    return `${formatBindingKey(key)}:${inferDatatypeForTitonicValue(child)}=${renderTitonicValueSnippet(child)}`;
+    const snippet = renderTitonicValueSnippet(child);
+    return isTitonicElement(child) ? snippet : `${formatBindingKey(key)}:${inferDatatypeForTitonicValue(child)}=${snippet}`;
   }).join(',')}}`;
 }
 
@@ -1422,9 +1429,6 @@ function renderAstValueSnippet(value: AttributeEntry['value']): string {
 }
 
 function inferDatatypeForTitonicValue(value: TitonicValue): string {
-  if (isTitonicElement(value)) {
-    return 'node';
-  }
   if (Array.isArray(value)) {
     return 'list';
   }
@@ -1459,6 +1463,8 @@ function toComparableTitonicValue(value: TitonicValue, seen: WeakSet<object> = n
       kind: 'node',
       tag: value.tag,
       datatype: value.datatype ?? null,
+      identity: getTitonicNodeStructuralId(value) ?? null,
+      attributes: stripSourceSpans(getTitonicNodeAttributes(value) ?? new Map(), true),
       children: value.children.map((child) => toComparableTitonicValue(child, seen)),
     };
   }
@@ -1489,18 +1495,19 @@ function toComparableAttributeValue(entry: AttributeEntry): unknown {
   };
 }
 
-function stripSourceSpans(value: unknown): unknown {
+function stripSourceSpans(value: unknown, normalizeLiteralSpelling = false): unknown {
   if (value instanceof Map) {
-    return Object.fromEntries([...value.entries()].sort(([left], [right]) => String(left).localeCompare(String(right))).map(([key, entry]) => [key, stripSourceSpans(entry)]));
+    return Object.fromEntries([...value.entries()].sort(([left], [right]) => String(left).localeCompare(String(right))).map(([key, entry]) => [key, stripSourceSpans(entry, normalizeLiteralSpelling)]));
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => stripSourceSpans(entry));
+    return value.map((entry) => stripSourceSpans(entry, normalizeLiteralSpelling));
   }
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value)
-      .filter(([key]) => key !== 'span')
+      .filter(([key]) => key !== 'span' && (!normalizeLiteralSpelling
+        || (key !== 'headSpan' && key !== 'raw' && key !== 'rawValue' && key !== 'delimiter')))
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, stripSourceSpans(entry)]));
+      .map(([key, entry]) => [key, stripSourceSpans(entry, normalizeLiteralSpelling)]));
   }
   return value;
 }
