@@ -301,16 +301,16 @@ export type NdInlineNode =
   | NdLink;
 
 export class FmtAndDocument {
-  readonly bindingKey: string;
+  readonly bindingKey = 'document';
   readonly root: AndDocumentNode;
 
   constructor(root: AndDocumentNode, options: { readonly bindingKey?: string } = {}) {
+    validateRootKey(options.bindingKey);
     this.root = root;
-    this.bindingKey = options.bindingKey ?? 'doc';
   }
 
   exportAes(): readonly AssignmentEvent[] {
-    const source = `${formatBindingKey(this.bindingKey)}:node = ${renderDocument(this.root)}`;
+    const source = renderDocument(this.root);
     const compiled = compile(source, {
       datatypePolicy: 'allow_custom',
     });
@@ -777,20 +777,13 @@ export function createFmtAndDocumentFromAes(
   aes: readonly AssignmentEvent[],
   options: FmtAndCreateOptions = {},
 ): FmtAndDocument {
-  const rootEvent = findRootDocumentEvent(aes, options.rootKey);
-  if (!rootEvent) {
-    throw new Error(options.rootKey
-      ? `fmt.and expected a top-level document node at ${JSON.stringify(options.rootKey)}.`
-      : 'fmt.and expected one top-level document node.');
+  validateRootKey(options.rootKey);
+  const rootEvent = findRootDocumentEvent(aes);
+  if (!rootEvent || rootEvent.value.type !== 'NodeLiteral' || rootEvent.value.tag !== 'document') {
+    throw new Error('fmt.and expected an intrinsic top-level document node at $.document.');
   }
 
-  if (rootEvent.value.type !== 'NodeLiteral' || rootEvent.value.tag !== 'document') {
-    throw new Error(`fmt.and root ${JSON.stringify(rootEvent.key)} must be a document node.`);
-  }
-
-  return new FmtAndDocument(projectDocument(rootEvent.value), {
-    bindingKey: rootEvent.key,
-  });
+  return new FmtAndDocument(projectDocument(rootEvent.value));
 }
 
 export function exportFmtAndAes(document: FmtAndDocument): readonly AssignmentEvent[] {
@@ -1133,15 +1126,16 @@ function formatFmtAndPath(path: FmtAndPath): string {
   return `$${path.map((segment) => typeof segment === 'number' ? `[${segment}]` : `.${segment}`).join('')}`;
 }
 
-function findRootDocumentEvent(
-  aes: readonly AssignmentEvent[],
-  rootKey: string | undefined,
-): AssignmentEvent | undefined {
-  const topLevel = aes.filter(isTopLevelBindingEvent).filter((event) => !event.key.startsWith('aeon:'));
-  if (rootKey) {
-    return topLevel.find((event) => event.key === rootKey);
+function validateRootKey(key: string | undefined): void {
+  if (key !== undefined && key !== 'document') {
+    throw new Error('fmt.and root key must be "document", the intrinsic node tag.');
   }
-  return topLevel.find((event) => event.value.type === 'NodeLiteral' && event.value.tag === 'document');
+}
+
+function findRootDocumentEvent(aes: readonly AssignmentEvent[]): AssignmentEvent | undefined {
+  return aes.find((event) => event.sourcePlane !== 'header' && isTopLevelBindingEvent(event)
+    && event.key === 'document'
+    && event.path.segments[1]?.type === 'member' && event.path.segments[1].key === 'document');
 }
 
 function isTopLevelBindingEvent(event: AssignmentEvent): boolean {
