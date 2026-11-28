@@ -116,8 +116,8 @@ test('CLI can compare complete Telex inputs', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aes-diff-telex-'));
   const beforeFile = join(dir, 'before.telex.aes');
   const afterFile = join(dir, 'after.telex.aes');
-  const before = compile('a\\stable\\:string = "one"\nnode:node = <tag\\head\\("child")>');
-  const after = compile('a\\stable\\:string = "two"\nnode:node = <tag\\head\\("child")>\nb:boolean = true');
+  const before = compile('a\\stable\\:string = "one"\n<tag\\head\\("child")>');
+  const after = compile('a\\stable\\:string = "two"\n<tag\\head\\("child")>\nb:boolean = true');
   assert.equal(before.errors.length, 0);
   assert.equal(after.errors.length, 0);
   await writeFile(beforeFile, exportTelex(before.events), 'utf8');
@@ -128,7 +128,7 @@ test('CLI can compare complete Telex inputs', async () => {
 
   assert.equal(parsed.summary.added, 1);
   assert.equal(parsed.summary.changed, 1);
-  assert.equal(parsed.summary.unchanged, 3);
+  assert.equal(parsed.summary.unchanged, 2);
   assert.deepEqual(parsed.changes.map((change: { readonly path: string }) => change.path), ['$.a', '$.b']);
 });
 

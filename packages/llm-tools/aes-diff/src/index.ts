@@ -28,6 +28,7 @@ export type AesDiffDeltaPart =
 export type AesDiffDiagnosticCode =
   | 'AEON_COMPILE_ERROR'
   | 'DUPLICATE_PATH'
+  | 'AMBIGUOUS_SOURCE_PLANE'
   | 'PATCH_NOT_APPLICABLE'
   | 'PATCH_STALE_BASE';
 
@@ -266,8 +267,10 @@ export function diffAes<TEvent extends AesEvent>(
   options: DiffAesOptions = {},
 ): AesDiffResult<TEvent> {
   const resolvedOptions = { ...DEFAULT_OPTIONS, ...options };
-  const before = indexEvents('before', beforeEvents, resolvedOptions);
-  const after = indexEvents('after', afterEvents, resolvedOptions);
+  const before = indexEvents('before', beforeEvents, resolvedOptions,
+    resolvedOptions.includeHeaders ? undefined : matchingLegacyBodyPaths(beforeEvents, afterEvents, resolvedOptions.pathFilters));
+  const after = indexEvents('after', afterEvents, resolvedOptions,
+    resolvedOptions.includeHeaders ? undefined : matchingLegacyBodyPaths(afterEvents, beforeEvents, resolvedOptions.pathFilters));
   const diagnostics = [...before.diagnostics, ...after.diagnostics];
   const paths = [...new Set([...before.events.keys(), ...after.events.keys()])].sort();
   const changes: AesChange<TEvent>[] = [];
@@ -291,9 +294,23 @@ export function diffAes<TEvent extends AesEvent>(
       continue;
     }
 
-    const delta = compareEvents(beforeEvent.semantic, afterEvent.semantic);
+    const delta = compareEvents(
+      alignLegacyPlane(beforeEvent.event, beforeEvent.semantic, afterEvent.event),
+      alignLegacyPlane(afterEvent.event, afterEvent.semantic, beforeEvent.event),
+    );
     if (delta.parts.length === 0) {
       unchanged += 1;
+      continue;
+    }
+
+    if (!resolvedOptions.includeHeaders && (
+      isUnlabelledHeaderPrefix(beforeEvent.event, path) || isUnlabelledHeaderPrefix(afterEvent.event, path)
+    )) {
+      diagnostics.push({
+        code: 'AMBIGUOUS_SOURCE_PLANE',
+        path,
+        message: 'A changed aeon-prefixed native event needs an explicit source plane when excluding headers.',
+      });
       continue;
     }
 
@@ -582,20 +599,67 @@ function eventsMatch<TEvent extends AesEvent>(
   path: string,
   options: Required<DiffAesOptions>,
 ): boolean {
-  return stableStringify(normalizeEvent(path, left, options)) === stableStringify(normalizeEvent(path, right, options));
+  const before = alignLegacyPlane(left, normalizeEvent(path, left, options), right);
+  const after = alignLegacyPlane(right, normalizeEvent(path, right, options), left);
+  return stableStringify(before) === stableStringify(after);
+}
+
+function alignLegacyPlane(
+  event: AesEvent,
+  semantic: NormalizedSemanticEvent,
+  counterpart: AesEvent,
+): NormalizedSemanticEvent {
+  if (isPortableRecord(event) || isPortableRecord(counterpart)
+    || event.sourcePlane !== undefined || counterpart.sourcePlane === undefined) return semantic;
+  const header = counterpart.sourcePlane === 'header';
+  return header === semantic.header ? semantic : { ...semantic, header };
+}
+
+function matchingLegacyBodyPaths(
+  legacyEvents: readonly AesEvent[],
+  labelledEvents: readonly AesEvent[],
+  pathFilters: readonly string[],
+): ReadonlySet<string> | undefined {
+  let candidates: Set<string> | undefined;
+  for (const event of legacyEvents) {
+    if (isPortableRecord(event) || event.sourcePlane !== undefined || !hasAeonPrefix(event)) continue;
+    const path = aesEventPath(event);
+    if (matchesPathFilters(path, pathFilters)) (candidates ??= new Set()).add(path);
+  }
+  if (!candidates?.size) return undefined;
+
+  const matches = new Set<string>();
+  for (const event of labelledEvents) {
+    if (isPortableRecord(event) || event.sourcePlane !== 'body' || !hasAeonPrefix(event)) continue;
+    const path = aesEventPath(event);
+    if (candidates.delete(path)) matches.add(path);
+    if (candidates.size === 0) break;
+  }
+  return matches;
+}
+
+function hasAeonPrefix(event: AssignmentEvent): boolean {
+  const member = event.path.segments[1];
+  return member?.type === 'member' && member.key.startsWith('aeon:');
+}
+
+function isUnlabelledHeaderPrefix(event: AesEvent, path: string): boolean {
+  return !isPortableRecord(event) && event.sourcePlane === undefined && isHeaderPath(path);
 }
 
 function indexEvents<TEvent extends AesEvent>(
   side: 'before' | 'after',
   events: readonly TEvent[],
   options: Required<DiffAesOptions>,
+  matchingLegacyBodyPaths?: ReadonlySet<string>,
 ): IndexedEvents<TEvent> {
   const indexed = new Map<string, NormalizedEvent<TEvent>>();
   const diagnostics: AesDiffDiagnostic[] = [];
 
   for (const event of events) {
     const path = aesEventPath(event);
-    if (!options.includeHeaders && isHeaderEvent(event, path)) {
+    if (!options.includeHeaders && isHeaderEvent(event, path)
+      && !(isUnlabelledHeaderPrefix(event, path) && matchingLegacyBodyPaths?.has(path))) {
       continue;
     }
     if (!matchesPathFilters(path, options.pathFilters)) {
@@ -636,6 +700,7 @@ function normalizeEvent(
       'header',
       'path',
       'kind',
+      'tag',
       'datatype',
       'generics',
       'clarifiers',
@@ -661,6 +726,7 @@ function normalizeEvent(
       },
       value: {
         kind: event.kind ?? null,
+        ...(event.tag !== undefined ? { tag: event.tag } : {}),
         value: event.value ?? null,
       },
     };
@@ -680,7 +746,7 @@ function normalizeEvent(
   const normalized: NormalizedSemanticEvent = {
     path,
     key: event.key,
-    header: isHeaderPath(path),
+    header: isHeaderEvent(event, path),
     identity: event.structuralId ?? null,
     datatype: event.datatype ?? null,
     value: normalizeUnknown(event.value, options),
@@ -832,7 +898,8 @@ function aesEventPath(event: AesEvent): string {
 }
 
 function isHeaderEvent(event: AesEvent, path: string): boolean {
-  return isPortableRecord(event) ? typeof event.header === 'string' : isHeaderPath(path);
+  if (isPortableRecord(event)) return typeof event.header === 'string';
+  return event.sourcePlane === undefined ? isHeaderPath(path) : event.sourcePlane === 'header';
 }
 
 function isHeaderPath(path: string): boolean {

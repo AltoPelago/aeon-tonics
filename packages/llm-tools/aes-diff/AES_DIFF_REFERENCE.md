@@ -80,6 +80,7 @@ Current diagnostic codes:
 
 - `AEON_COMPILE_ERROR`
 - `DUPLICATE_PATH`
+- `AMBIGUOUS_SOURCE_PLANE`
 - `PATCH_NOT_APPLICABLE`
 - `PATCH_STALE_BASE`
 
@@ -227,3 +228,8 @@ It currently does not:
 - resolve patch conflicts
 
 Those should be layered on later, likely through the AEON edit CLI and Titonic.
+
+When headers are excluded, matching unchanged labelled and unlabelled native
+events at a quoted aeon-prefixed body path compare equal. A changed native event
+at that path needs an explicit source plane. An ambiguous comparison reports
+`AMBIGUOUS_SOURCE_PLANE` and yields a non-applicable patch.
