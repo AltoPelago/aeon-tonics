@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseAddressOrThrow } from '@altopelago/sansa';
 import { createTitonicFromAeon, resolveTitonicAddress, exportTitonicAeon } from './index.js';
 
-const source = "aeon:mode=\"strict\"\nitem\\i\\:number=42\nnode:node=<book()>";
+const source = "aeon:mode=\"strict\"\nitem\\i\\:number=42\n<book()>";
 
 for (const suffix of ['&key("item")', '&tag("book")', '&headTag("book")']) {
   for (const prefix of ['$.*', '$.absent.*', "$.\\i\\"]) {

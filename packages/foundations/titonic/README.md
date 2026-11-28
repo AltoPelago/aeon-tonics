@@ -9,7 +9,7 @@ read, updated, and exported without losing alignment with the AES ecosystem.
 
 Read-only `resolveTitonicAddress` supports authored direct-child identities such
 as `$.items.\\item1\\`, with a shared per-call inspection budget and canonical
-structural result paths. Binding and node-head IDs remain distinct. See the
+structural result paths. An intrinsic node carries its own identity. See the
 [API contract](API_REFERENCE.md#sansa-address-resolution) for live proxy behavior,
 unsupported spaces and combined-release dependency limits.
 
@@ -152,7 +152,7 @@ Node head attributes can be mutated explicitly with:
 - `setTitonicNodeAttribute(...)`
 - `deleteTitonicNodeAttribute(...)`
 
-Nested annotations on node-head attributes can be inspected and mutated with:
+Nested annotations on node attributes can be inspected and mutated with:
 
 - `getTitonicNodeAttributeAnnotations(...)`
 - `getTitonicNodeAttributeAnnotation(...)`
@@ -184,13 +184,12 @@ These path-based value operations respect Titonic’s clone and pointer semantic
 proxy-based edits.
 
 Node children can be addressed in those path APIs with the explicit `TITONIC_CHILDREN` segment, for
-example `['view', TITONIC_CHILDREN, 0]`. This keeps child traversal unambiguous instead of
+example `['panel', TITONIC_CHILDREN, 0]`. This keeps child traversal unambiguous instead of
 overloading a plain string key like `"children"`.
 
 That array form is an explicitly Titonic-internal mutation path. Public SANSA
 navigation through `resolveTitonicAddress(...)` uses portable AES occurrence
-paths: `$.view` is the `NodeLiteral`, `$.view[0]` is its `NodeHead`, and
-`$.view[0][0]` is its first child. Resolved bindings expose this address as
+paths: `$.panel` is the `NodeLiteral`, and `$.panel[0]` is its first child. Resolved bindings expose this address as
 `portablePath`/`pathText` and retain the internal array as `titonicPath`.
 
 For a more ergonomic path-oriented workflow, use `titonicAt(...)`:
@@ -298,3 +297,7 @@ Reference design note:
 - scenario-based examples are documented in [`EXAMPLES.md`](./EXAMPLES.md)
 - planned clone and pointer semantics are documented in [`REFERENCE_MODEL.md`](./REFERENCE_MODEL.md)
 - current API-shape and usability notes are documented in [`ERGONOMICS.md`](./ERGONOMICS.md)
+
+A named element uses its tag as the owning property key. To export a renamed
+element, place it under the new matching key. A named clone uses its own key as
+its tag when it detaches on mutation.

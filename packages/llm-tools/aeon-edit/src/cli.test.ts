@@ -543,14 +543,14 @@ test('CLI applies batch operations from JSON', async () => {
     '  count:number = 1',
     '}',
     'items:list = [1]',
-    'view:node = <panel@{id:string="hero"}:node>',
+    '<panel@{id:string="hero"}:node>',
   ].join('\n'), 'utf8');
   await writeFile(ops, JSON.stringify({
     operations: [
       { command: 'set', path: '$.app.count', value: '2' },
       { command: 'append', path: '$.items', value: '3' },
       { command: 'attr.set', path: '$.app', key: 'owner', value: '"tools"' },
-      { command: 'node-attr.set', path: '$.view[0]', key: 'id', value: '"main"' },
+      { command: 'node-attr.set', path: '$.panel', key: 'id', value: '"main"' },
     ],
   }), 'utf8');
 
@@ -775,10 +775,10 @@ test('CLI plan-node-attr-set emits and applies a guarded node metadata operation
   const ops = join(dir, 'ops.json');
   await writeFile(file, [
     'aeon:mode = "strict"',
-    'view:node = <panel@{id:string="hero"}:node>',
+    '<panel@{id:string="hero"}:node>',
   ].join('\n'), 'utf8');
 
-  const planned = await execFileAsync(process.execPath, [cliPath, 'plan-node-attr-set', file, '$.view[0]', 'id', '"main"']);
+  const planned = await execFileAsync(process.execPath, [cliPath, 'plan-node-attr-set', file, '$.panel', 'id', '"main"']);
   const plan = JSON.parse(planned.stdout);
   assert.equal(plan.operations[0].command, 'node-attr.set');
   assert.equal(plan.operations[0].expectAttribute, '"hero"');
@@ -824,14 +824,14 @@ test('CLI plan-node-attr-annotation-set emits and applies a guarded nested node 
   const ops = join(dir, 'ops.json');
   await writeFile(file, [
     'aeon:mode = "strict"',
-    'view:node = <panel@{id@{source:string="seed"}:string="hero"}:node>',
+    '<panel@{id@{source:string="seed"}:string="hero"}:node>',
   ].join('\n'), 'utf8');
 
   const planned = await execFileAsync(process.execPath, [
     cliPath,
     'plan-node-attr-annotation-set',
     file,
-    '$.view[0]',
+    '$.panel',
     'id',
     'source',
     '"ui"',
@@ -864,13 +864,13 @@ test('CLI exports Telex and keeps document headers opt-in', async () => {
   const output = join(dir, 'doc.telex.aes');
   await writeFile(file, [
     'aeon:mode = "strict"',
-    'view\\binding-id\\:node = <panel\\head-id\\("hello")>',
+    '<panel\\head-id\\("hello")>',
   ].join('\n'), 'utf8');
 
   const body = await execFileAsync(process.execPath, [cliPath, 'export-telex', file]);
   const bodyParsed = parseTelex(body.stdout);
   assert.equal(validateTelex(bodyParsed).valid, true);
-  assert.equal(bodyParsed.records.some((record) => record.path === '$.view[0]' && record.identity === 'head-id'), true);
+  assert.equal(bodyParsed.records.some((record) => record.path === '$.panel' && record.identity === 'head-id'), true);
   assert.equal(bodyParsed.records.some((record) => typeof record.header === 'string'), false);
 
   const withHeaders = await execFileAsync(process.execPath, [
@@ -895,7 +895,7 @@ test('CLI inspects and lists paths', async () => {
     'app@{owner:string="core"}:object = {',
     '  name:string = "Aeon"',
     '}',
-    'view:node = <panel@{id:string="hero"}:node("hello")>',
+    '<panel@{id:string="hero"}:node("hello")>',
   ].join('\n'), 'utf8');
 
   const inspected = await execFileAsync(process.execPath, [cliPath, 'inspect', file, '$.app']);
@@ -904,9 +904,8 @@ test('CLI inspects and lists paths', async () => {
   assert.match(inspected.stdout, /children: \$\.app\.name/);
 
   const listed = await execFileAsync(process.execPath, [cliPath, 'list', file]);
-  assert.match(listed.stdout, /^\$\.view node:node/m);
-  assert.match(listed.stdout, /^\$\.view\[0\] node-head:node nodeAttrs:id/m);
-  assert.match(listed.stdout, /^\$\.view\[0\]\[0\] string/m);
+  assert.match(listed.stdout, /^\$\.panel node:node nodeAttrs:id/m);
+  assert.match(listed.stdout, /^\$\.panel\[0\] string/m);
 
   const json = await execFileAsync(process.execPath, [cliPath, 'list', file, '--json']);
   const parsed = JSON.parse(json.stdout);
@@ -984,16 +983,16 @@ test('CLI gets, sets, and deletes node-head attributes', async () => {
   const file = join(dir, 'doc.aeon');
   await writeFile(file, [
     'aeon:mode = "strict"',
-    'view:node = <panel@{id:string="hero"}:node>',
+    '<panel@{id:string="hero"}:node>',
   ].join('\n'), 'utf8');
 
-  const read = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'get', file, '$.view[0]', 'id', '--json']);
+  const read = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'get', file, '$.panel', 'id', '--json']);
   assert.equal(JSON.parse(read.stdout).value.value.value, 'hero');
 
-  const set = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'set', file, '$.view[0]', 'id', '"main"']);
+  const set = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'set', file, '$.panel', 'id', '"main"']);
   assert.match(set.stdout, /id:string="main"/);
 
-  const deleted = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'delete', file, '$.view[0]', 'id']);
+  const deleted = await execFileAsync(process.execPath, [cliPath, 'node-attr', 'delete', file, '$.panel', 'id']);
   assert.doesNotMatch(deleted.stdout, /id:string/);
 });
 
@@ -1002,7 +1001,7 @@ test('CLI gets, sets, and deletes nested node-head attribute annotations', async
   const file = join(dir, 'doc.aeon');
   await writeFile(file, [
     'aeon:mode = "strict"',
-    'view:node = <panel@{id@{source:string="seed"}:string="hero"}:node>',
+    '<panel@{id@{source:string="seed"}:string="hero"}:node>',
   ].join('\n'), 'utf8');
 
   const read = await execFileAsync(process.execPath, [
@@ -1010,7 +1009,7 @@ test('CLI gets, sets, and deletes nested node-head attribute annotations', async
     'node-attr-annotation',
     'get',
     file,
-    '$.view[0]',
+    '$.panel',
     'id',
     'source',
     '--json',
@@ -1022,7 +1021,7 @@ test('CLI gets, sets, and deletes nested node-head attribute annotations', async
     'node-attr-annotation',
     'set',
     file,
-    '$.view[0]',
+    '$.panel',
     'id',
     'source',
     '"ui"',
@@ -1034,7 +1033,7 @@ test('CLI gets, sets, and deletes nested node-head attribute annotations', async
     'node-attr-annotation',
     'delete',
     file,
-    '$.view[0]',
+    '$.panel',
     'id',
     'source',
   ]);

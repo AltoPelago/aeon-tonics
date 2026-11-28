@@ -41,18 +41,14 @@ test('child identity composes with existing expansion, filters and parents', () 
   assert.deepEqual(paths(document, '$.**.\\n\\.^'), ['$.group']);
 });
 
-test('node binding/head IDs stay distinct and return portable and internal paths', () => {
-  const document = from('view\\binding\\:node=<panel\\head\\:node(\\text\\="hello",<br\\nestedHead\\>)>');
-  assert.deepEqual(paths(document, '$.\\head\\'), []);
-  assert.deepEqual(paths(document, '$.\\binding\\'), ['$.view']);
-  const head = resolveTitonicAddress(document, '$.view.\\head\\');
-  assert.deepEqual(head.bindings.map((b) => [b.pathText, b.occurrence, b.value]), [['$.view[0]', 'node-head', 'panel']]);
-  const child = resolveTitonicAddress(document, '$.view.\\head\\.\\text\\');
-  assert.deepEqual(child.bindings.map((b) => [b.pathText, b.titonicPath, b.value]), [
-    ['$.view[0][0]', ['view', TITONIC_CHILDREN, 0], 'hello'],
+test('Titonic selects node and child identities on their intrinsic occurrences', () => {
+  const document = from('<panel\\head\\:node(\\text\\="hello",<br\\nestedHead\\>)>');
+  assert.deepEqual(paths(document, '$.\\head\\'), ['$.panel']);
+  const child = resolveTitonicAddress(document, '$.panel.\\text\\');
+  assert.deepEqual(child.bindings.map((binding) => [binding.pathText, binding.titonicPath, binding.value]), [
+    ['$.panel[0]', ['panel', TITONIC_CHILDREN, 0], 'hello'],
   ]);
-  assert.deepEqual(paths(document, '$.view.\\head\\.\\head\\'), []);
-  assert.deepEqual(paths(document, '$.view[0][1].\\nestedHead\\'), ['$.view[0][1][0]']);
+  assert.deepEqual(paths(document, '$.panel.\\nestedHead\\'), ['$.panel[1]']);
 });
 
 test('binding identity does not cross attribute/local spaces or use quoted keys as metadata', () => {

@@ -52,18 +52,18 @@ test('titonic preserves structural identities through AES and minimized export',
     'aeon:mode = "strict"',
     'age\\A1\\:number = 42',
     'items:list = [\\B2\\:string = "green"]',
-    'node\\N1\\@{meta\\M1\\:string = "value"}:node = <tag\\H1\\>',
+    '<tag\\H1\\@{meta\\M1\\:string = "value"}>',
   ].join('\n'));
   const exported = exportTitonicAes(titonic);
   assert.equal(exported.find((event) => event.key === 'age')?.structuralId, 'A1');
   assert.equal(exported.find((event) => event.key === '0')?.structuralId, 'B2');
-  const node = exported.find((event) => event.key === 'node');
-  assert.equal(node?.structuralId, 'N1');
+  const node = exported.find((event) => event.key === 'tag');
+  assert.equal(node?.structuralId, 'H1');
   assert.equal(node?.annotations?.get('meta')?.structuralId, 'M1');
   assert.equal(node?.value.type === 'NodeLiteral' ? node.value.structuralId : null, 'H1');
   assert.equal(
     exportTitonicAeon(titonic, { trailingNewline: false }),
-    'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]\nnode\\N1\\@{meta\\M1\\:string="value"}:node=<tag\\H1\\>',
+    'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]\n<tag\\H1\\@{meta\\M1\\:string="value"}>',
   );
 });
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
@@ -463,10 +463,10 @@ test('titonic preserves tuple kind on whole-value replacement and clone detachme
 test('titonic materializes node literals as live element objects and preserves head metadata', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel@{id:string = "hero"}:node("hello", <br>, (1, 2))>',
+    '<panel@{id:string = "hero"}:node("hello", <br>, (1, 2))>',
   ].join('\n'));
 
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
 
   assert.equal(isTitonicElement(view), true);
   assert.equal(view.tag, 'panel');
@@ -477,22 +477,21 @@ test('titonic materializes node literals as live element objects and preserves h
   assert.deepEqual((view.children[2] as TitonicTuple).map((value: unknown) => value), [1, 2]);
   assert.equal(getTitonicNodeAttributes(view)?.get('id')?.datatype, 'string');
 
-  view.tag = 'section';
   view.children.push('world');
 
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<section@{id:string="hero"}:node("hello",<br>,(1,2),"world")>',
+    'aeon:mode="strict"\n<panel@{id:string="hero"}:node("hello",<br>,(1,2),"world")>',
   );
 });
 
 test('titonic can create and replace node literals via titonicElement()', () => {
   const titonic = createTitonicFromAeon('aeon:mode = "strict"');
 
-  titonic.view = titonicElement('panel', ['hello', titonicElement('br')], { datatype: 'node' });
+  titonic.panel = titonicElement('panel', ['hello', titonicElement('br')], { datatype: 'node' });
 
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
   assert.equal(view.tag, 'panel');
   assert.equal((view.children[1] as TitonicElement).tag, 'br');
 
@@ -505,10 +504,10 @@ test('titonic can create and replace node literals via titonicElement()', () => 
 
   assert.throws(
     () => exportTitonicAeon(titonic),
-    /Node tag "section" must match its key "view"/,
+    /Node tag "section" must match its key "panel"/,
   );
   titonic.section = titonicElement('section', view.children, { datatype: 'node' });
-  delete titonic.view;
+  delete titonic.panel;
 
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
@@ -531,34 +530,33 @@ test('titonic exports binding and node attributes on the intrinsic declaration',
 test('titonic supports pointer alias reads and writes for node values', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel:node("hello")>',
-    'mirror:node = ~>view',
+    '<panel:node("hello")>',
+    'mirror:node = ~>panel',
   ].join('\n'));
 
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
   const mirror = titonic.mirror as TitonicElement;
 
   assert.equal(mirror.tag, 'panel');
   assert.equal(mirror.children[0], 'hello');
 
-  mirror.tag = 'section';
   mirror.children.push('world');
 
-  assert.equal(view.tag, 'section');
+  assert.equal(view.tag, 'panel');
   assert.deepEqual(view.children.map((value: unknown) => value), ['hello', 'world']);
 
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<section:node("hello","world")>\nmirror:node=~>view',
+    'aeon:mode="strict"\n<panel:node("hello","world")>\nmirror:node=~>panel',
   );
 });
 
 test('titonic keeps node clones symbolic under read-only access and detaches on mutation', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel:node("hello", <br:node>)>',
-    'copy:node = ~view',
+    '<panel:node("hello", <br:node>)>',
+    'copy:node = ~panel',
   ].join('\n'));
 
   const copy = titonic.copy as TitonicElement;
@@ -569,29 +567,29 @@ test('titonic keeps node clones symbolic under read-only access and detaches on 
   const beforeMutation = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     beforeMutation,
-    'aeon:mode="strict"\nview:node=<panel:node("hello",<br:node>)>\ncopy:node=~view',
+    'aeon:mode="strict"\n<panel:node("hello",<br:node>)>\ncopy:node=~panel',
   );
 
   (copy.children[1] as TitonicElement).tag = 'hr';
 
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
   assert.equal((view.children[1] as TitonicElement).tag, 'br');
   assert.equal((copy.children[1] as TitonicElement).tag, 'hr');
 
   const afterMutation = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     afterMutation,
-    'aeon:mode="strict"\nview:node=<panel:node("hello",<br:node>)>\ncopy:node=<panel:node("hello",<hr:node>)>',
+    'aeon:mode="strict"\n<panel:node("hello",<br:node>)>\n<copy:node("hello",<hr:node>)>',
   );
 });
 
 test('titonic supports node head attribute CRUD and preserves export', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel@{id:string = "hero", tone:string = "info"}:node>',
+    '<panel@{id:string = "hero", tone:string = "info"}:node>',
   ].join('\n'));
 
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
 
   assert.equal(getTitonicNodeAttribute(view, 'id')?.datatype, 'string');
   assert.equal(getTitonicNodeAttribute(view, 'tone')?.value.type, 'StringLiteral');
@@ -608,21 +606,21 @@ test('titonic supports node head attribute CRUD and preserves export', () => {
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<panel@{id:string="main",enabled:boolean=true}:node>',
+    'aeon:mode="strict"\n<panel@{id:string="main",enabled:boolean=true}:node>',
   );
 });
 
 test('titonic applies node head attribute mutation through pointer aliases and clone detachment', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel@{id:string = "hero"}:node>',
-    'mirror:node = ~>view',
-    'copy:node = ~view',
+    '<panel@{id:string = "hero"}:node>',
+    'mirror:node = ~>panel',
+    'copy:node = ~panel',
   ].join('\n'));
 
   const mirror = titonic.mirror as TitonicElement;
   const copy = titonic.copy as TitonicElement;
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
 
   setTitonicNodeAttribute(mirror, 'id', 'live');
   setTitonicNodeAttribute(copy, 'id', 'copy');
@@ -634,14 +632,14 @@ test('titonic applies node head attribute mutation through pointer aliases and c
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<panel@{id:string="live"}:node>\nmirror:node=~>view\ncopy:node=<panel@{id:string="copy"}:node>',
+    'aeon:mode="strict"\n<panel@{id:string="live"}:node>\nmirror:node=~>panel\n<copy@{id:string="copy"}:node>',
   );
 });
 
 test('titonic supports nested node-head attribute annotation CRUD', () => {
   const compiled = compile([
     'aeon:mode = "strict"',
-    'view:node = <panel@{id@{source:string = "seed"}:string = "hero"}:node>',
+    '<panel@{id@{source:string = "seed"}:string = "hero"}:node>',
   ].join('\n'), {
     datatypePolicy: 'allow_custom',
     maxAttributeDepth: 2,
@@ -650,7 +648,7 @@ test('titonic supports nested node-head attribute annotation CRUD', () => {
 
   const titonic = createTitonicFromAes(compiled.events);
 
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
 
   assert.equal(getTitonicNodeAttributeAnnotations(view, 'id')?.get('source')?.datatype, 'string');
   assert.equal(
@@ -673,16 +671,16 @@ test('titonic supports nested node-head attribute annotation CRUD', () => {
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<panel@{id@{locked:boolean=true}:string="hero"}:node>',
+    'aeon:mode="strict"\n<panel@{id@{locked:boolean=true}:string="hero"}:node>',
   );
 });
 
 test('titonic applies nested node-head annotation mutation through pointer aliases and clone detachment', () => {
   const compiled = compile([
     'aeon:mode = "strict"',
-    'view:node = <panel@{id@{source:string = "seed"}:string = "hero"}:node>',
-    'mirror:node = ~>view',
-    'copy:node = ~view',
+    '<panel@{id@{source:string = "seed"}:string = "hero"}:node>',
+    'mirror:node = ~>panel',
+    'copy:node = ~panel',
   ].join('\n'), {
     datatypePolicy: 'allow_custom',
     maxAttributeDepth: 2,
@@ -693,7 +691,7 @@ test('titonic applies nested node-head annotation mutation through pointer alias
 
   const mirror = titonic.mirror as TitonicElement;
   const copy = titonic.copy as TitonicElement;
-  const view = titonic.view as TitonicElement;
+  const view = titonic.panel as TitonicElement;
 
   setTitonicNodeAttributeAnnotation(mirror, 'id', 'source', 'live');
   setTitonicNodeAttributeAnnotation(copy, 'id', 'source', 'copy');
@@ -710,7 +708,7 @@ test('titonic applies nested node-head annotation mutation through pointer alias
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<panel@{id@{source:string="live"}:string="hero"}:node>\nmirror:node=~>view\ncopy:node=<panel@{id@{source:string="copy"}:string="hero"}:node>',
+    'aeon:mode="strict"\n<panel@{id@{source:string="live"}:string="hero"}:node>\nmirror:node=~>panel\n<copy@{id@{source:string="copy"}:string="hero"}:node>',
   );
 });
 
@@ -848,20 +846,20 @@ test('titonic applies path-based value mutation through pointer aliases and clon
 test('titonic supports path-based addressing of node children', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel:node("hello", <br:node>, "world")>',
+    '<panel:node("hello", <br:node>, "world")>',
   ].join('\n'));
 
-  assert.equal(getTitonicValue(titonic, ['view', TITONIC_CHILDREN, 0]), 'hello');
-  assert.equal((getTitonicValue(titonic, ['view', TITONIC_CHILDREN, 1]) as TitonicElement).tag, 'br');
+  assert.equal(getTitonicValue(titonic, ['panel', TITONIC_CHILDREN, 0]), 'hello');
+  assert.equal((getTitonicValue(titonic, ['panel', TITONIC_CHILDREN, 1]) as TitonicElement).tag, 'br');
 
-  setTitonicValue(titonic, ['view', TITONIC_CHILDREN, 1], titonicElement('hr', [], { datatype: 'node' }));
-  setTitonicValue(titonic, ['view', TITONIC_CHILDREN, 3], 'tail');
-  assert.equal(deleteTitonicValue(titonic, ['view', TITONIC_CHILDREN, 0]), true);
+  setTitonicValue(titonic, ['panel', TITONIC_CHILDREN, 1], titonicElement('hr', [], { datatype: 'node' }));
+  setTitonicValue(titonic, ['panel', TITONIC_CHILDREN, 3], 'tail');
+  assert.equal(deleteTitonicValue(titonic, ['panel', TITONIC_CHILDREN, 0]), true);
 
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<panel:node(<hr:node>,"world","tail")>',
+    'aeon:mode="strict"\n<panel:node(<hr:node>,"world","tail")>',
   );
 });
 
@@ -880,38 +878,15 @@ test('titonic resolves exact SANSA member and position addresses', () => {
   ]);
 });
 
-test('titonic SANSA navigation exposes the portable node-head hierarchy', () => {
-  const titonic = createTitonicFromAeon([
-    'aeon:mode = "strict"',
-    'view:node = <panel:node("hello", <br:node>)>',
-  ].join('\n'));
-
-  const head = resolveTitonicAddress(titonic, '$.view[0]');
-  const firstChild = resolveTitonicAddress(titonic, '$.view[0][0]');
-  const nestedHead = resolveTitonicAddress(titonic, '$.view[0][1][0]');
-  const expanded = resolveTitonicAddress(titonic, '$.view.**');
-  const filteredHeads = resolveTitonicAddress(titonic, '$.view.**%NodeHead');
-
-  assert.deepEqual(head.bindings.map((binding) => [binding.pathText, binding.representationKind, binding.occurrence, binding.value]), [
-    ['$.view[0]', 'NodeHead', 'node-head', 'panel'],
-  ]);
-  assert.deepEqual(firstChild.bindings.map((binding) => [binding.pathText, binding.value]), [
-    ['$.view[0][0]', 'hello'],
-  ]);
-  assert.deepEqual(nestedHead.bindings.map((binding) => [binding.pathText, binding.representationKind]), [
-    ['$.view[0][1][0]', 'NodeHead'],
-  ]);
-  assert.deepEqual(expanded.bindings.map((binding) => binding.pathText), [
-    '$.view[0]',
-    '$.view[0][0]',
-    '$.view[0][1]',
-    '$.view[0][1][0]',
-  ]);
-  assert.deepEqual(filteredHeads.bindings.map((binding) => binding.pathText), [
-    '$.view[0]',
-    '$.view[0][1][0]',
-  ]);
-  assert.deepEqual(firstChild.bindings[0]?.titonicPath, ['view', TITONIC_CHILDREN, 0]);
+test('titonic SANSA navigation addresses intrinsic node children directly', () => {
+  const titonic = createTitonicFromAeon('aeon:mode="strict"\n<panel:node("hello",<br:node>)>\ncopy:string=~panel[0]');
+  const first = resolveTitonicAddress(titonic, '$.panel[0]');
+  assert.deepEqual(first.bindings.map((binding) => [binding.pathText, binding.value]), [['$.panel[0]', 'hello']]);
+  assert.deepEqual(first.bindings[0]?.titonicPath, ['panel', TITONIC_CHILDREN, 0]);
+  assert.equal(resolveTitonicAddress(titonic, '$.copy').bindings[0]?.value, 'hello');
+  assert.deepEqual(resolveTitonicAddress(titonic, '$.panel.**').bindings.map((binding) => binding.pathText), ['$.panel[0]', '$.panel[1]']);
+  assert.deepEqual(resolveTitonicAddress(titonic, '$.panel.**%NodeLiteral').bindings.map((binding) => binding.pathText), ['$.panel[1]']);
+  assert.deepEqual(resolveTitonicAddress(titonic, '$.panel[0][0]').bindings, []);
 });
 
 test('titonic resolves SANSA direct expansion and representation filters', () => {
@@ -994,22 +969,22 @@ test('titonic reports unsupported SANSA address spaces in the first resolve slic
 test('titonic applies node-child path mutation through pointer aliases and clone detachment', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel:node("hello", <br:node>)>',
-    'mirror:node = ~>view',
-    'copy:node = ~view',
+    '<panel:node("hello", <br:node>)>',
+    'mirror:node = ~>panel',
+    'copy:node = ~panel',
   ].join('\n'));
 
   setTitonicValue(titonic, ['mirror', TITONIC_CHILDREN, 0], 'live');
   setTitonicValue(titonic, ['copy', TITONIC_CHILDREN, 1], titonicElement('hr', [], { datatype: 'node' }));
 
-  assert.equal(getTitonicValue(titonic, ['view', TITONIC_CHILDREN, 0]), 'live');
-  assert.equal((getTitonicValue(titonic, ['view', TITONIC_CHILDREN, 1]) as TitonicElement).tag, 'br');
+  assert.equal(getTitonicValue(titonic, ['panel', TITONIC_CHILDREN, 0]), 'live');
+  assert.equal((getTitonicValue(titonic, ['panel', TITONIC_CHILDREN, 1]) as TitonicElement).tag, 'br');
   assert.equal((getTitonicValue(titonic, ['copy', TITONIC_CHILDREN, 1]) as TitonicElement).tag, 'hr');
 
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<panel:node("live",<br:node>)>\nmirror:node=~>view\ncopy:node=<panel:node("live",<hr:node>)>',
+    'aeon:mode="strict"\n<panel:node("live",<br:node>)>\nmirror:node=~>panel\n<copy:node("live",<hr:node>)>',
   );
 });
 
@@ -1043,8 +1018,8 @@ test('titonicAt groups path-based value and metadata operations ergonomically', 
 test('titonicAt works with node children and clone semantics', () => {
   const titonic = createTitonicFromAeon([
     'aeon:mode = "strict"',
-    'view:node = <panel:node("hello", <br:node>)>',
-    'copy:node = ~view',
+    '<panel:node("hello", <br:node>)>',
+    'copy:node = ~panel',
   ].join('\n'));
 
   const child = titonicAt(titonic, ['copy', TITONIC_CHILDREN, 1]);
@@ -1052,12 +1027,48 @@ test('titonicAt works with node children and clone semantics', () => {
 
   child.set(titonicElement('hr', [], { datatype: 'node' }));
 
-  assert.equal((titonicAt(titonic, ['view', TITONIC_CHILDREN, 1]).get() as TitonicElement).tag, 'br');
+  assert.equal((titonicAt(titonic, ['panel', TITONIC_CHILDREN, 1]).get() as TitonicElement).tag, 'br');
   assert.equal((child.get() as TitonicElement).tag, 'hr');
 
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<panel:node("hello",<br:node>)>\ncopy:node=<panel:node("hello",<hr:node>)>',
+    'aeon:mode="strict"\n<panel:node("hello",<br:node>)>\n<copy:node("hello",<hr:node>)>',
   );
+});
+
+test('titonic pointer writes and native output use direct node child paths', () => {
+  const source = 'aeon:mode="strict"\n<panel:node("old",<row>,<row>)>\nlabel:string=~>panel[0]';
+  const doc = createTitonicFromAeon(source);
+  assert.equal(doc.label, 'old');
+  doc.label = 'new';
+  assert.equal((doc.panel as TitonicElement).children[0], 'new');
+  const events = exportTitonicAes(doc);
+  assert.deepEqual(events.filter((event) => event.sourcePlane === 'body').map((event) => formatPath(event.path)),
+    ['$.panel', '$.panel[0]', '$.panel[1]', '$.panel[2]', '$.label']);
+  const sourceReplay = compile(exportTitonicAeon(doc));
+  assert.deepEqual(sourceReplay.errors, []);
+});
+
+test('a detached intrinsic clone keeps its own identity and leaves source identities unique', () => {
+  const doc = createTitonicFromAeon(String.raw`aeon:mode="strict"
+<panel\ORIGINAL\@{label\ATTR\:string="label"}:node(\CHILD\:string="hello",<row\ROW\>)>
+copy\COPY\:node=~panel`);
+  (doc.copy as TitonicElement).children[0] = 'new';
+  const output = exportTitonicAeon(doc);
+  const result = compile(output);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.events.find((event) => event.key === 'panel')?.structuralId, 'ORIGINAL');
+  assert.equal(result.events.find((event) => event.key === 'copy')?.structuralId, 'COPY');
+  assert.equal(result.events.find((event) => formatPath(event.path) === '$.copy[1]')?.structuralId, undefined);
+});
+
+test('an unlabelled nested mode member stays in the body', () => {
+  const {events, errors} = compile('box={"aeon:mode"="strict",<row>}');
+  assert.deepEqual(errors, []);
+  const unlabelled = events.map(({sourcePlane: _plane, ...event}) => event);
+  assert.throws(() => createTitonicFromAes(unlabelled), /requires strict-mode AES/);
+  const document = createTitonicFromAes(unlabelled, {requireStrictMode: false});
+  assert.deepEqual(exportTitonicAes(document).map((event) => formatPath(event.path)),
+    ['$.box', '$.box.["aeon:mode"]', '$.box.row']);
 });

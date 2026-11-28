@@ -127,7 +127,7 @@ export interface TitonicResolvedBinding {
   readonly value: TitonicValue;
   readonly datatype?: string;
   readonly representationKind: string;
-  readonly occurrence: 'value' | 'node-head';
+  readonly occurrence: 'value';
 }
 
 export interface TitonicResolveResult {
@@ -209,6 +209,7 @@ interface CloneViewNode extends BaseNode {
   readonly kind: 'clone-view';
   readonly targetPath: readonly ReferencePathSegment[];
   realized?: TitonicNode;
+  bindingKey?: string;
   rootClone?: CloneViewNode;
   localPath?: readonly ReferencePathSegment[];
 }
@@ -449,10 +450,10 @@ export function createTitonicFromAes(
   options: TitonicCreateOptions = {},
 ): TitonicObject {
   const topLevel = aes.filter(isTopLevelEvent);
-  const headerEvents = topLevel.filter((event) => isHeaderEvent(event));
+  const headerEvents = aes.filter(isHeaderEvent);
   const strictMode = headerEvents.some(
     (event) =>
-      event.key === 'aeon:mode' &&
+      isTopLevelEvent(event) && event.key === 'aeon:mode' &&
       event.value.type === 'StringLiteral' &&
       event.value.value === 'strict',
   );
@@ -470,7 +471,9 @@ export function createTitonicFromAes(
     if (isHeaderEvent(event)) {
       continue;
     }
-    root.properties.set(event.key, nodeFromValue(event.value, event.datatype, event.annotations, undefined, event.structuralId ?? undefined));
+    const node = nodeFromAssignmentEvent(event);
+    if (node.kind === 'clone-view') node.bindingKey = event.key;
+    root.properties.set(event.key, node);
   }
 
   return createController(root, headerEvents, strictMode).proxyFor(root) as TitonicObject;
@@ -883,6 +886,11 @@ export function deleteTitonicAttributeAnnotation(
   return deleted;
 }
 
+export function getTitonicNodeStructuralId(value: TitonicElement): string | undefined {
+  const node = getElementNode(value);
+  return node.headStructuralId ?? node.structuralId;
+}
+
 export function getTitonicNodeAttributes(
   value: TitonicElement,
 ): ReadonlyMap<string, AttributeEntry> | undefined {
@@ -1076,13 +1084,6 @@ function candidateFromTitonicPath(
       if (candidate.occurrence !== 'value' || readable.kind !== 'element') {
         throw new Error(`Titonic expected an element while translating ${formatReferencePathForError(path)} to a portable path.`);
       }
-      candidate = {
-        path: [...internalPath],
-        portablePath: [...candidate.portablePath, 0],
-        node: candidate.node,
-        occurrence: 'node-head',
-        parent: candidate,
-      };
       internalPath.push(segment);
       continue;
     }
@@ -1105,7 +1106,7 @@ interface TitonicResolveCandidate {
   readonly path: readonly ReferencePathSegment[];
   readonly portablePath: readonly ReferencePathSegment[];
   readonly node: TitonicNode;
-  readonly occurrence: 'value' | 'node-head';
+  readonly occurrence: 'value';
   readonly parent?: TitonicResolveCandidate;
 }
 
@@ -1134,9 +1135,7 @@ function resolveTitonicSelector(
           children: (parent) => iterateTitonicChildren(controller, parent),
           identity: (child) => {
             identityBudget.inspected += 1;
-            if (child.occurrence === 'value') return child.node.structuralId;
-            const node = resolveReadableTitonicNode(controller, child.node);
-            return node.kind === 'element' ? node.headStructuralId : undefined;
+            return child.node.kind === 'element' ? child.node.headStructuralId ?? child.node.structuralId : child.node.structuralId;
           },
         }, { maxIdentityInspections: identityBudget.limit - identityBudget.inspected });
         if (!result.ok) {
@@ -1168,14 +1167,10 @@ function resolveTitonicSelector(
     case 'namePattern':
       return { candidates: resolveNamePatternSelector(controller, candidates, selector.pattern), diagnostics: [] };
     case 'semanticTypeFilter':
-      return { candidates: candidates.filter((candidate) => matchesTitonicSemanticType(controller, candidate.node, selector.name, candidate.occurrence)), diagnostics: [] };
+      return { candidates: candidates.filter((candidate) => matchesTitonicSemanticType(controller, candidate.node, selector.name)), diagnostics: [] };
     case 'representationKindFilter':
       return {
-        candidates: candidates.filter((candidate) => (
-          candidate.occurrence === 'node-head'
-            ? 'NodeHead'
-            : representationKindForTitonicNode(candidate.node)
-        ) === selector.name),
+        candidates: candidates.filter((candidate) => representationKindForTitonicNode(candidate.node) === selector.name),
         diagnostics: [],
       };
     case 'propertyFilter':
@@ -1216,7 +1211,6 @@ function resolveMemberSelector(
 ): readonly TitonicResolveCandidate[] {
   const matches: TitonicResolveCandidate[] = [];
   for (const candidate of candidates) {
-    if (candidate.occurrence === 'node-head') continue;
     const node = resolveReadableTitonicNode(controller, candidate.node);
     if (node.kind !== 'object') {
       continue;
@@ -1240,49 +1234,7 @@ function resolvePositionSelector(
   candidates: readonly TitonicResolveCandidate[],
   index: number,
 ): readonly TitonicResolveCandidate[] {
-  const matches: TitonicResolveCandidate[] = [];
-  for (const candidate of candidates) {
-    const node = resolveReadableTitonicNode(controller, candidate.node);
-    if (candidate.occurrence === 'value' && node.kind === 'element') {
-      if (index === 0) {
-        matches.push({
-          path: candidate.path,
-          portablePath: [...candidate.portablePath, 0],
-          node: candidate.node,
-          occurrence: 'node-head',
-          parent: candidate,
-        });
-      }
-      continue;
-    }
-    if (candidate.occurrence === 'node-head' && node.kind === 'element') {
-      const child = node.children.items[index];
-      if (child) {
-        matches.push({
-          path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
-          portablePath: [...candidate.portablePath, index],
-          node: child,
-          occurrence: 'value',
-          parent: candidate,
-        });
-      }
-      continue;
-    }
-    if (node.kind !== 'list' && node.kind !== 'tuple') {
-      continue;
-    }
-    const child = node.items[index];
-    if (child) {
-      matches.push({
-        path: [...candidate.path, index],
-        portablePath: [...candidate.portablePath, index],
-        node: child,
-        occurrence: 'value',
-        parent: candidate,
-      });
-    }
-  }
-  return matches;
+  return resolvePositionRangeSelector(controller, candidates, index, index);
 }
 
 function resolvePositionRangeSelector(
@@ -1294,50 +1246,36 @@ function resolvePositionRangeSelector(
   const matches: TitonicResolveCandidate[] = [];
   for (const candidate of candidates) {
     const node = resolveReadableTitonicNode(controller, candidate.node);
-    if (candidate.occurrence === 'value' && node.kind === 'element') {
-      if ((start ?? 0) <= 0 && (end ?? 0) >= 0) {
-        matches.push({
-          path: candidate.path,
-          portablePath: [...candidate.portablePath, 0],
-          node: candidate.node,
-          occurrence: 'node-head',
-          parent: candidate,
-        });
-      }
-      continue;
-    }
-    if (candidate.occurrence === 'node-head' && node.kind === 'element') {
-      const first = start ?? 0;
-      const last = Math.min(end ?? node.children.items.length - 1, node.children.items.length - 1);
-      for (let index = first; index <= last; index += 1) {
-        const child = node.children.items[index];
-        if (child) {
-          matches.push({
-            path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
-            portablePath: [...candidate.portablePath, index],
-            node: child,
-            occurrence: 'value',
-            parent: candidate,
-          });
-        }
-      }
-      continue;
-    }
-    if (node.kind !== 'list' && node.kind !== 'tuple') continue;
+    const items = indexedTitonicItems(node);
+    if (!items) continue;
     const first = start ?? 0;
-    const last = Math.min(end ?? node.items.length - 1, node.items.length - 1);
+    const last = Math.min(end ?? items.length - 1, items.length - 1);
     for (let index = first; index <= last; index += 1) {
-      const child = node.items[index];
-      if (child) matches.push({
-        path: [...candidate.path, index],
-        portablePath: [...candidate.portablePath, index],
-        node: child,
-        occurrence: 'value',
-        parent: candidate,
-      });
+      const child = items[index];
+      if (child) matches.push(indexedTitonicCandidate(candidate, node, child, index));
     }
   }
   return matches;
+}
+
+function indexedTitonicItems(node: TitonicNode): TitonicNode[] | undefined {
+  if (node.kind === 'element') return node.children.items;
+  return node.kind === 'list' || node.kind === 'tuple' ? node.items : undefined;
+}
+
+function indexedTitonicCandidate(
+  parent: TitonicResolveCandidate,
+  node: TitonicNode,
+  child: TitonicNode,
+  index: number,
+): TitonicResolveCandidate {
+  return {
+    path: node.kind === 'element' ? [...parent.path, ELEMENT_CHILDREN_SEGMENT, index] : [...parent.path, index],
+    portablePath: [...parent.portablePath, index],
+    node: child,
+    occurrence: 'value',
+    parent,
+  };
 }
 
 function resolveNamePatternSelector(
@@ -1346,12 +1284,13 @@ function resolveNamePatternSelector(
   pattern: string,
 ): readonly TitonicResolveCandidate[] {
   const matcher = globPatternToRegExp(pattern);
-  return candidates.flatMap((candidate) =>
-    directTitonicChildren(controller, candidate).filter((child) => {
+  return candidates.flatMap((candidate) => {
+    if (resolveReadableTitonicNode(controller, candidate.node).kind !== 'object') return [];
+    return directTitonicChildren(controller, candidate).filter((child) => {
       const key = child.portablePath[child.portablePath.length - 1];
       return typeof key === 'string' && matcher.test(key);
-    }),
-  );
+    });
+  });
 }
 
 function directTitonicChildren(
@@ -1367,17 +1306,6 @@ function* iterateTitonicChildren(
   candidate: TitonicResolveCandidate,
 ): IterableIterator<TitonicResolveCandidate> {
   const node = resolveReadableTitonicNode(controller, candidate.node);
-  if (candidate.occurrence === 'node-head') {
-    if (node.kind !== 'element') return;
-    for (const [index, child] of node.children.items.entries()) yield {
-      path: [...candidate.path, ELEMENT_CHILDREN_SEGMENT, index],
-      portablePath: [...candidate.portablePath, index],
-      node: child,
-      occurrence: 'value',
-      parent: candidate,
-    };
-    return;
-  }
   if (node.kind === 'object') {
     for (const [key, child] of node.properties.entries()) yield {
       path: [...candidate.path, key],
@@ -1386,22 +1314,10 @@ function* iterateTitonicChildren(
       occurrence: 'value',
       parent: candidate,
     };
-  } else if (node.kind === 'list' || node.kind === 'tuple') {
-    for (const [index, child] of node.items.entries()) yield {
-      path: [...candidate.path, index],
-      portablePath: [...candidate.portablePath, index],
-      node: child,
-      occurrence: 'value',
-      parent: candidate,
-    };
-  } else if (node.kind === 'element') {
-    yield {
-      path: candidate.path,
-      portablePath: [...candidate.portablePath, 0],
-      node: candidate.node,
-      occurrence: 'node-head',
-      parent: candidate,
-    };
+  } else {
+    for (const [index, child] of indexedTitonicItems(node)?.entries() ?? []) {
+      yield indexedTitonicCandidate(candidate, node, child, index);
+    }
   }
 }
 
@@ -1417,12 +1333,9 @@ function matchesTitonicSemanticType(
   controller: TitonicController,
   node: TitonicNode,
   expected: string,
-  occurrence: 'value' | 'node-head' = 'value',
 ): boolean {
   const readable = resolveReadableTitonicNode(controller, node);
-  const datatype = occurrence === 'node-head' && readable.kind === 'element'
-    ? readable.headDatatype
-    : node.declaredDatatype;
+  const datatype = node.declaredDatatype ?? (readable.kind === 'element' ? readable.headDatatype : undefined);
   return datatype === expected || (datatype !== undefined && datatypeBaseName(datatype) === expected);
 }
 
@@ -1439,25 +1352,16 @@ function bindingFromResolveCandidate(
   preserveProxyView = false,
 ): TitonicResolvedBinding {
   const readable = resolveReadableTitonicNode(controller, candidate.node);
+  const datatype = candidate.node.declaredDatatype ?? (readable.kind === 'element' ? readable.headDatatype : undefined);
   return {
     path: publicTitonicPath(candidate.path),
     titonicPath: publicTitonicPath(candidate.path),
     portablePath: Object.freeze([...candidate.portablePath]),
     pathText: formatTitonicResolvePath(candidate.portablePath),
-    value: candidate.occurrence === 'node-head' && readable.kind === 'element'
-      ? readable.tag
-      : preserveProxyView && readable.kind !== 'scalar'
-        ? proxyValueAtPath(controller, candidate.path) : controller.proxyFor(readable),
-    ...((candidate.occurrence === 'node-head' && readable.kind === 'element'
-      ? readable.headDatatype
-      : candidate.node.declaredDatatype) ? {
-        datatype: candidate.occurrence === 'node-head'
-          ? (readable as ElementNode).headDatatype
-          : candidate.node.declaredDatatype,
-      } : {}),
-    representationKind: candidate.occurrence === 'node-head'
-      ? 'NodeHead'
-      : representationKindForTitonicNode(candidate.node),
+    value: preserveProxyView && readable.kind !== 'scalar'
+      ? proxyValueAtPath(controller, candidate.path) : controller.proxyFor(readable),
+    ...(datatype ? { datatype } : {}),
+    representationKind: representationKindForTitonicNode(candidate.node),
     occurrence: candidate.occurrence,
   };
 }
@@ -2040,14 +1944,35 @@ function nodeFromValue(
   }
 }
 
+function nodeFromAssignmentEvent(event: AssignmentEvent): TitonicNode {
+  if (event.value.type !== 'NodeLiteral') {
+    return nodeFromValue(event.value, event.datatype, event.annotations, undefined, event.structuralId ?? undefined);
+  }
+
+  const node = nodeFromValue(
+    event.value,
+    event.value.datatype ? undefined : event.datatype,
+    undefined,
+    undefined,
+    event.value.structuralId == null ? event.structuralId ?? undefined : undefined,
+  ) as ElementNode;
+  if (event.annotations?.size) {
+    node.headAnnotations = new Map([...node.headAnnotations ?? [], ...event.annotations]);
+    delete node.headAttributes;
+  }
+  return node;
+}
+
 function nodeFromBinding(binding: Binding): TitonicNode {
-  return nodeFromValue(
+  const node = nodeFromValue(
     binding.value,
     binding.datatype ? formatDatatypeAnnotation(binding.datatype) : undefined,
     buildAnnotationMap(binding.attributes),
     binding.attributes,
     binding.structuralId ?? undefined,
   );
+  if (node.kind === 'clone-view') node.bindingKey = binding.key;
+  return node;
 }
 
 function createNodeFromJsValue(
@@ -2334,43 +2259,39 @@ function emitNodeEvents(
   path: readonly ({ readonly type: 'root' } | { readonly type: 'member'; readonly key: string } | { readonly type: 'index'; readonly index: number })[],
   key: string,
   out: AssignmentEvent[],
+  value = nodeToAstValue(node),
 ): void {
-  const value = nodeToAstValue(node);
+  const intrinsic = value.type === 'NodeLiteral' ? value : undefined;
+  const structuralId = intrinsic?.structuralId ?? node.structuralId;
+  const datatype = intrinsic?.datatype ? formatDatatypeAnnotation(intrinsic.datatype) : node.declaredDatatype;
+  const ownAttributes = intrinsic ? buildAnnotationMap(intrinsic.attributes) : undefined;
+  const annotations = ownAttributes && node.annotations
+    ? new Map([...ownAttributes, ...node.annotations]) : ownAttributes ?? node.annotations;
   out.push({
     path: { segments: [...path] },
     key,
     sourcePlane: 'body',
-    ...(node.structuralId ? { structuralId: node.structuralId } : {}),
+    ...(structuralId ? { structuralId } : {}),
     value,
     span: zeroSpan(),
-    ...(node.declaredDatatype ? { datatype: node.declaredDatatype } : {}),
-    ...(node.annotations && node.annotations.size > 0 ? { annotations: node.annotations } : {}),
+    ...(datatype ? { datatype } : {}),
+    ...(annotations?.size ? { annotations } : {}),
   });
 
-  if (node.kind === 'object') {
-    for (const [childKey, child] of node.properties) {
-      emitNodeEvents(child, [...path, { type: 'member', key: childKey }], childKey, out);
+  const payload = node.kind === 'clone-view' ? node.realized : node;
+  if (payload?.kind === 'object' && value.type === 'ObjectNode') {
+    for (const binding of value.bindings) {
+      emitNodeEvents(payload.properties.get(binding.key)!, [...path, { type: 'member', key: binding.key }],
+        binding.key, out, binding.value);
     }
-  } else if (node.kind === 'list' || node.kind === 'tuple') {
-    node.items.forEach((child, index) => {
-      emitNodeEvents(child, [...path, { type: 'index', index }], String(index), out);
+  } else if (payload && (value.type === 'NodeLiteral' || value.type === 'ListNode' || value.type === 'TupleLiteral')) {
+    const items = indexedTitonicItems(payload);
+    const children = value.type === 'NodeLiteral' ? value.children : value.elements;
+    if (!items) return;
+    children.forEach((child, index) => {
+      const childValue = child.type === 'TypedValue' ? child.value : child;
+      emitNodeEvents(items[index]!, [...path, { type: 'index', index }], String(index), out, childValue);
     });
-  } else if (node.kind === 'element') {
-    return;
-  } else if (node.kind === 'pointer-alias' || (node.kind === 'clone-view' && !node.realized)) {
-    return;
-  } else if (node.kind === 'clone-view' && node.realized) {
-    if (node.realized.kind === 'object') {
-      for (const [childKey, child] of node.realized.properties) {
-        emitNodeEvents(child, [...path, { type: 'member', key: childKey }], childKey, out);
-      }
-    } else if (node.realized.kind === 'list' || node.realized.kind === 'tuple') {
-      node.realized.items.forEach((child, index) => {
-        emitNodeEvents(child, [...path, { type: 'index', index }], String(index), out);
-      });
-    } else if (node.realized.kind === 'element') {
-      return;
-    }
   }
 }
 
@@ -2408,16 +2329,18 @@ function nodeToAstValue(node: TitonicNode): Value {
         raw: `(${node.items.map(() => '').join(',')})`,
         span: zeroSpan(),
       };
-    case 'element':
+    case 'element': {
+      const datatype = node.headDatatype ?? node.declaredDatatype;
       return {
         type: 'NodeLiteral',
         tag: node.tag,
-        structuralId: node.headStructuralId ?? null,
+        structuralId: node.headStructuralId ?? node.structuralId ?? null,
         attributes: node.headAttributes ?? attributesFromAnnotationMap(node.headAnnotations),
-        datatype: node.headDatatype ? datatypeFromName(node.headDatatype) : null,
+        datatype: datatype ? datatypeFromName(datatype) : null,
         children: node.children.items.map(nodeToAstHeadedValue),
         span: zeroSpan(),
       };
+    }
     case 'pointer-alias':
       return {
         type: 'PointerReference',
@@ -2825,7 +2748,8 @@ function isTopLevelEvent(event: AssignmentEvent): boolean {
 }
 
 function isHeaderEvent(event: AssignmentEvent): boolean {
-  return event.sourcePlane === undefined ? event.key.startsWith('aeon:') : event.sourcePlane === 'header';
+  if (event.sourcePlane !== undefined) return event.sourcePlane === 'header';
+  return isTopLevelEvent(event) && event.value.type !== 'NodeLiteral' && event.key.startsWith('aeon:');
 }
 
 function zeroSpan() {
@@ -3031,8 +2955,51 @@ function realizeCloneNode(node: CloneViewNode, controller?: TitonicController): 
     inferDatatypeForNewObjectMembers: true,
     inferDatatypeForListItems: false,
   }));
+  clearDetachedNodeIdentities(realized, new WeakMap());
+  if (realized.kind === 'element' && node.bindingKey !== undefined) {
+    realized.tag = node.bindingKey;
+  }
   node.realized = preserveDeclaredDatatype(node, realized);
   return node.realized;
+}
+
+// The copy creates new occurrences. Only the alias's own metadata is reapplied.
+function clearDetachedNodeIdentities(
+  node: TitonicNode,
+  metadata: WeakMap<object, unknown>,
+  insideNode = false,
+): void {
+  const clear = insideNode || node.kind === 'element';
+  if (clear) {
+    delete node.structuralId;
+    if (node.annotations) node.annotations = copyWithoutIdentities(node.annotations, metadata);
+    if (node.attributes) node.attributes = copyWithoutIdentities(node.attributes, metadata);
+  }
+  if (node.kind === 'element') {
+    delete node.headStructuralId;
+    if (node.headAnnotations) node.headAnnotations = copyWithoutIdentities(node.headAnnotations, metadata);
+    if (node.headAttributes) node.headAttributes = copyWithoutIdentities(node.headAttributes, metadata);
+  }
+  const children = node.kind === 'object' ? node.properties.values() : indexedTitonicItems(node);
+  for (const child of children ?? []) clearDetachedNodeIdentities(child, metadata, clear);
+}
+
+function copyWithoutIdentities<T>(value: T, metadata: WeakMap<object, unknown>): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (metadata.has(value)) return metadata.get(value) as T;
+  let result: unknown;
+  if (value instanceof Map) {
+    result = new Map([...value].map(([key, entry]) => [key, copyWithoutIdentities(entry, metadata)]));
+  } else if (Array.isArray(value)) {
+    result = value.map((entry) => copyWithoutIdentities(entry, metadata));
+  } else {
+    result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+      key, key === 'structuralId' ? null
+        : key === 'span' || key === 'headSpan' ? entry : copyWithoutIdentities(entry, metadata),
+    ]));
+  }
+  metadata.set(value, result);
+  return result as T;
 }
 
 function createDerivedCloneView(parent: CloneViewNode, segment: ReferencePathSegment): CloneViewNode {
@@ -3244,10 +3211,9 @@ function resolveReferenceTarget(root: ObjectNode, path: readonly ReferencePathSe
       current = resolveReferenceTarget(root, current.targetPath);
     }
     if (typeof segment === 'number') {
-      if (current.kind !== 'list' && current.kind !== 'tuple') {
-        throw new Error(`Titonic expected a list or tuple while resolving reference segment [${segment}].`);
-      }
-      const next: TitonicNode | undefined = current.items[segment];
+      const items = indexedTitonicItems(current);
+      if (!items) throw new Error('Titonic expected an indexed container in a reference.');
+      const next: TitonicNode | undefined = items[segment];
       if (!next) {
         throw new Error(`Titonic could not resolve list index [${segment}] in reference.`);
       }
@@ -3280,10 +3246,9 @@ function overwriteResolvedNode(root: ObjectNode, path: readonly ReferencePathSeg
       current = resolveReferenceTarget(root, current.targetPath);
     }
     if (typeof segment === 'number') {
-      if (current.kind !== 'list' && current.kind !== 'tuple') {
-        throw new Error('Titonic expected a list or tuple while traversing a reference overwrite path.');
-      }
-      const next: TitonicNode | undefined = current.items[segment];
+      const items = indexedTitonicItems(current);
+      if (!items) throw new Error('Titonic expected an indexed container in a reference overwrite path.');
+      const next: TitonicNode | undefined = items[segment];
       if (!next) {
         throw new Error('Titonic could not traverse a reference overwrite path.');
       }
@@ -3308,10 +3273,9 @@ function overwriteResolvedNode(root: ObjectNode, path: readonly ReferencePathSeg
     current = resolveReferenceTarget(root, current.targetPath);
   }
   if (typeof leaf === 'number') {
-    if (current.kind !== 'list' && current.kind !== 'tuple') {
-      throw new Error('Titonic expected a list or tuple while overwriting a reference target.');
-    }
-    current.items[leaf] = nextNode;
+    const items = indexedTitonicItems(current);
+    if (!items) throw new Error('Titonic expected an indexed container while overwriting a reference target.');
+    items[leaf] = nextNode;
     return;
   }
   if (current.kind !== 'object') {
