@@ -742,6 +742,7 @@ test('fmt.and model rejects unsupported nodes and invalid attributes', () => {
 
 test('fmt.and uses the document tag at its intrinsic path', () => {
   const source = '<document(<paragraph("hello")>)>';
+  // @ts-expect-error Exercise the runtime guard for JavaScript callers.
   assert.throws(() => createFmtAndDocumentFromAeon(source, { rootKey: 'article' }), /root key must be "document"/);
   assert.throws(() => createFmtAndDocumentFromAeon('<article(<paragraph("hello")>)>'), /top-level document node/);
   const document = createFmtAndDocumentFromAeon(source, { rootKey: 'document' });

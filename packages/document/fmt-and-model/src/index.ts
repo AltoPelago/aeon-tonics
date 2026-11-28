@@ -8,7 +8,7 @@ import type {
 import { minimize, type MinimizeOptions, type MinimizeResult } from '../../../export/minizer/dist/index.js';
 
 export interface FmtAndCreateOptions {
-  readonly rootKey?: string;
+  readonly rootKey?: 'document';
 }
 
 export interface FmtAndAndCoreBridgeOptions {
@@ -304,7 +304,7 @@ export class FmtAndDocument {
   readonly bindingKey = 'document';
   readonly root: AndDocumentNode;
 
-  constructor(root: AndDocumentNode, options: { readonly bindingKey?: string } = {}) {
+  constructor(root: AndDocumentNode, options: { readonly bindingKey?: 'document' } = {}) {
     validateRootKey(options.bindingKey);
     this.root = root;
   }
