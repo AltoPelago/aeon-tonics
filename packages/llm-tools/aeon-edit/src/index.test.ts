@@ -496,8 +496,22 @@ test('whole-node guards preserve attribute reference paths from the edited docum
     const result = planAeonEditSet(source, '$.panel', '<panel("after")>');
     const { operations } = result.value as { operations: readonly AeonEditBatchOperation[] };
     assert.equal(applyAeonEditBatch(source, operations).ok, true);
+    const operation = operations[0]!;
+    assert.ok('expect' in operation && operation.expect);
+    const wrongType = { ...operation, expect: operation.expect.replace('target:string', 'target:number') };
+    assert.equal(preflightAeonEditBatch(source, [wrongType]).diagnostics[0]?.code, 'EXPECTATION_MISMATCH');
     const stale = applyAeonEditBatch(source.replace(`${ref}first`, `${ref}second`), operations);
     assert.equal(stale.ok, false);
     assert.equal(stale.preflight?.diagnostics[0]?.code, 'EXPECTATION_MISMATCH');
   }
+});
+
+test('value guards enforce strict datatype assertions before edits', () => {
+  const source = 'aeon:mode="strict"\nbox:object={label:string="before"}\n<panel("before")>';
+  assert.throws(() => applyAeonEditBatch(source, [
+    { command: 'set', path: '$.box', expect: '{label:number="before"}', value: '{label:string="after"}' },
+  ]), /DATATYPE_LITERAL_MISMATCH/);
+  assert.throws(() => applyAeonEditBatch(source, [
+    { command: 'set', path: '$.panel', expect: '<panel(:number="before")>', value: '<panel("after")>' },
+  ]), /DATATYPE_LITERAL_MISMATCH/);
 });

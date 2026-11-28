@@ -32,10 +32,13 @@ import { renderAnnotations } from '../../../export/minizer/dist/index.js';
 import { compactAeon, type CompactCommentMode } from '../../../export/compactor/dist/index.js';
 import { convertAeonMode, type AeonModeConversionTarget } from '../../../export/mode-converter/dist/index.js';
 import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
-import type { AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
-import { tokenize } from '../../../../../aeon/implementations/typescript/packages/lexer/dist/index.js';
-import { parse } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import {
+  DatatypeLiteralMismatchError,
+  MissingReferenceTargetError,
+  type AttributeEntry,
+} from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import {
+  compile,
   exportTelex,
   projectPortableEvents,
   TYPESCRIPT_ASSIGNMENT_EVENTS_CONTRACT_V0,
@@ -1329,34 +1332,34 @@ function parseAeonValueSnippet(snippet: string): TitonicValue {
 function parseAeonExpectationSnippet(snippet: string): TitonicValue {
   const trimmed = snippet.trim();
   const isNode = trimmed.startsWith('<');
-  const input = isNode ? trimmed : `__value__:${inferSnippetDatatype(trimmed)} = ${trimmed}`;
-  const lexed = tokenize(input, { includeComments: false });
-  if (lexed.errors.length > 0) {
-    throw new Error(`Invalid AEON value guard: ${lexed.errors[0]!.message}`);
+  const valueSource = isNode ? trimmed : `__value__:${inferSnippetDatatype(trimmed)} = ${trimmed}`;
+  const compiled = compile(`aeon:mode = "strict"\n${valueSource}`, {
+    datatypePolicy: 'allow_custom',
+    maxAttributeDepth: DEFAULT_MAX_ATTRIBUTE_DEPTH,
+    recovery: true,
+  });
+  // Compare a missing attribute reference against the edited document's
+  // already validated metadata. An isolated guard cannot check its target type.
+  const externalAttributes = new Set(compiled.errors.flatMap((error) =>
+    error instanceof MissingReferenceTargetError && error.sourcePath.includes('.@.') ? [error.sourcePath] : []));
+  const errors = compiled.errors.filter((error) => {
+    if (error instanceof MissingReferenceTargetError) return !externalAttributes.has(error.sourcePath);
+    if (error instanceof DatatypeLiteralMismatchError) return !externalAttributes.has(error.path);
+    return true;
+  });
+  if (errors.length > 0) {
+    throw new Error(`Invalid AEON value guard: ${errors.map((error) => `${error.code}: ${error.message}`).join('\n')}`);
   }
-  const parsed = parse(lexed.tokens, { maxAttributeDepth: DEFAULT_MAX_ATTRIBUTE_DEPTH });
-  if (parsed.errors.length > 0) {
-    throw new Error(`Invalid AEON value guard: ${parsed.errors[0]!.message}`);
-  }
-  const bindings = parsed.document?.bindings;
-  if (bindings?.length !== 1 || parsed.document?.header || parsed.document?.envelope) {
+  const document = createTitonicFromAes(compiled.events);
+  const keys = Object.keys(document);
+  if (keys.length !== 1 || (!isNode && keys[0] !== '__value__')) {
     throw new Error('Expected one AEON value in the guard.');
   }
-  const binding = bindings[0]!;
-  if (isNode ? binding.value.type !== 'NodeLiteral' : binding.key !== '__value__') {
-    throw new Error('Expected one AEON value in the guard.');
+  const value = getTitonicValue(document, [keys[0]!]);
+  if (isNode && !isTitonicElement(value)) {
+    throw new Error('Expected an intrinsic AEON node in the guard.');
   }
-
-  // Guard metadata can refer to paths in the edited document. Preserve its
-  // reference syntax here so it can be compared without resolving it in isolation.
-  const document = createTitonicFromAes([{
-    path: { segments: [{ type: 'root' }, { type: 'member', key: binding.key }] },
-    key: binding.key,
-    value: binding.value,
-    span: binding.span,
-    sourcePlane: 'body',
-  }], { requireStrictMode: false });
-  return getTitonicValue(document, [binding.key]);
+  return value;
 }
 
 function parseAeonAttributeEntrySnippet(snippet: string): AttributeEntry {
