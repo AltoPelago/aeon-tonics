@@ -39,18 +39,23 @@ test('CLI emits JSON graph output', async () => {
   assert.equal(parsed.edges[0].to, '$.base');
 });
 
-test('CLI can inspect structural containment around a path', async () => {
+test('CLI inspects direct children and attributes of an intrinsic node', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-graph-'));
   const file = join(dir, 'doc.aeon');
-  await writeFile(file, 'obj:object = { nested:string = "x" }', 'utf8');
+  await writeFile(file, '<panel@{title="x"}(<button>)>', 'utf8');
 
-  const result = await execFileAsync(process.execPath, [cliPath, file, '--path', '$.obj', '--json']);
+  const result = await execFileAsync(process.execPath, [cliPath, file, '--descendants', '$.panel', '--json']);
   const parsed = JSON.parse(result.stdout);
 
-  assert.equal(parsed.edges.length, 1);
-  assert.equal(parsed.edges[0].kind, 'contains');
-  assert.equal(parsed.edges[0].from, '$.obj');
-  assert.equal(parsed.edges[0].to, '$.obj.nested');
+  assert.deepEqual(parsed.edges, [
+    { file, from: '$.panel', to: '$.panel.@.title', kind: 'contains' },
+    { file, from: '$.panel', to: '$.panel[0]', kind: 'contains' },
+  ]);
+  assert.deepEqual(parsed.nodes, [
+    { file, path: '$.panel', kind: 'node', tag: 'panel' },
+    { file, path: '$.panel.@.title', kind: 'string' },
+    { file, path: '$.panel[0]', kind: 'node', tag: 'button' },
+  ]);
 });
 
 test('CLI filters graph output by edge kind', async () => {

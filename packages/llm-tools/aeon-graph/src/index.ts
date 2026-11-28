@@ -2,7 +2,6 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
   compile,
-  createPortableEventPathMap,
   projectPortableEvents,
   type AssignmentEvent,
   type CompileOptions,
@@ -51,6 +50,7 @@ export interface AeonGraphNode {
   readonly path: string;
   readonly kind: string;
   readonly datatype?: string;
+  readonly tag?: string;
 }
 
 export interface AeonGraphEdge {
@@ -99,16 +99,12 @@ export async function graphAeonFiles(
       ...options.compileOptions,
     });
     if (compiled.errors.length > 0) {
-      const recovery = compiled.events.length > 0
-        ? compiled
-        : compile(source, { maxAttributeDepth: 2, ...options.compileOptions, recovery: true });
-      const pathMap = createPortableEventPathMap(recovery.events);
-      diagnostics.push(...compiled.errors.map((error) => graphDiagnostic(error, file, pathMap)));
+      diagnostics.push(...compiled.errors.map((error) => graphDiagnostic(error, file)));
       continue;
     }
     const graph = graphAesEvents(compiled.events, { file });
-    nodes.push(...graph.nodes);
-    edges.push(...graph.edges);
+    for (const node of graph.nodes) nodes.push(node);
+    for (const edge of graph.edges) edges.push(edge);
   }
 
   return filterGraph({
@@ -127,18 +123,20 @@ export function graphAesEvents(
   const file = options.file ?? '';
   const portable = projectPortableEvents(events);
   const nodes = portable.map((event): AeonGraphNode => {
-    const datatype = typeof event.datatype === 'string' ? event.datatype : undefined;
+    const { datatype, tag } = event;
     return {
       file,
       path: event.path,
       kind: eventKind(event),
       ...(datatype === undefined ? {} : { datatype }),
+      ...(tag === undefined ? {} : { tag }),
     };
   });
+  const paths = new Set(nodes.map((node) => node.path));
   const containmentEdges = nodes
     .map((node): AeonGraphEdge | undefined => {
       const parent = parentPath(node.path);
-      if (parent === undefined || !nodes.some((candidate) => candidate.path === parent)) {
+      if (parent === undefined || !paths.has(parent)) {
         return undefined;
       }
       return {
@@ -175,7 +173,7 @@ export function formatAeonGraphText(result: AeonGraphResult): string {
       node.path,
       node.kind,
       node.datatype ? `:${node.datatype}` : '',
-    ].join(' ').replace(/\s+/g, ' ').trim()),
+    ].filter(Boolean).join(' ')),
     ...result.edges.map((edge) => `edge ${edge.file} ${edge.from} -${edge.kind}-> ${edge.to}`),
     ...result.diagnostics.map((diagnostic) => `${diagnostic.file}${diagnostic.path === undefined ? '' : ` ${diagnostic.path}`} ${diagnostic.code}: ${diagnostic.message}`),
   ];
@@ -424,23 +422,20 @@ function dotString(value: string): string {
 }
 
 function parentPath(path: string): string | undefined {
-  if (path === '$') {
-    return undefined;
+  // Paths come from Core. Quoted keys and attribute steps each occupy one segment.
+  const step = /\.(?:@\.)?(?:[A-Za-z_][A-Za-z0-9_]*|\["(?:\\.|[^"\\])*"\])|\[(?:0|[1-9][0-9]*)\]/yu;
+  step.lastIndex = 1;
+  let parentEnd = 1;
+  while (step.lastIndex < path.length) {
+    parentEnd = step.lastIndex;
+    if (!step.test(path)) return undefined;
   }
-  if (path.endsWith(']')) {
-    const bracket = path.lastIndexOf('[');
-    return bracket <= 0 ? undefined : path.slice(0, bracket);
-  }
-  const dot = path.lastIndexOf('.');
-  return dot <= 0 ? undefined : path.slice(0, dot);
+  return parentEnd === 1 ? undefined : path.slice(0, parentEnd);
 }
 
 function eventKind(event: PortableAesEvent): string {
   if (event.kind === 'NodeLiteral') {
     return 'node';
-  }
-  if (event.kind === 'NodeHead') {
-    return 'node-head';
   }
   if (event.kind === 'CloneReference' || event.kind === 'PointerReference') {
     return 'reference';
@@ -451,28 +446,18 @@ function eventKind(event: PortableAesEvent): string {
   return event.kind;
 }
 
-function graphDiagnostic(
-  error: unknown,
-  file: string,
-  pathMap: ReadonlyMap<string, string>,
-): AeonGraphDiagnostic {
+function graphDiagnostic(error: unknown, file: string): AeonGraphDiagnostic {
   const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
-  const sourcePath = typeof record.sourcePath === 'string'
+  const path = typeof record.sourcePath === 'string'
     ? record.sourcePath
     : typeof record.path === 'string' ? record.path : undefined;
   const targetPath = typeof record.targetPath === 'string' ? record.targetPath : undefined;
-  const portableSource = sourcePath === undefined ? undefined : (pathMap.get(sourcePath) ?? sourcePath);
-  const portableTarget = targetPath === undefined ? undefined : (pathMap.get(targetPath) ?? targetPath);
-  let message = error instanceof Error ? error.message : String(error);
-  for (const [native, portable] of [[sourcePath, portableSource], [targetPath, portableTarget]] as const) {
-    if (native !== undefined && portable !== undefined && native !== portable) message = message.replaceAll(native, portable);
-  }
   return {
     file,
     code: errorCode(error),
-    message,
-    ...(portableSource === undefined ? {} : { path: portableSource }),
-    ...(portableTarget === undefined ? {} : { targetPath: portableTarget }),
+    message: error instanceof Error ? error.message : String(error),
+    ...(path === undefined ? {} : { path }),
+    ...(targetPath === undefined ? {} : { targetPath }),
   };
 }
 

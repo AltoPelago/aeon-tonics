@@ -59,9 +59,9 @@ test('lintAeonFiles keeps no-external-reference quiet for same-file references',
   assert.equal(result.findings.length, 0);
 });
 
-test('lintAeonFiles reports pointer references originating under a protected scope', async () => {
+test('lintAeonFiles reports pointer references originating under a protected node', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aeon-lint-'));
-  await writeFile(join(dir, 'doc.aeon'), 'base:string = "x"\napp:object = { ptr = ~>base }\notherPtr = ~>base', 'utf8');
+  await writeFile(join(dir, 'doc.aeon'), 'base:string = "x"\n<app(~>base)>\notherPtr = ~>base', 'utf8');
 
   const result = await lintAeonFiles([dir], { pointerUnder: ['$.app'] });
 
@@ -69,7 +69,7 @@ test('lintAeonFiles reports pointer references originating under a protected sco
   assert.deepEqual(result.rules.includes('no-pointer-under'), true);
   assert.equal(result.findings.length, 1);
   assert.equal(result.findings[0]?.rule, 'no-pointer-under');
-  assert.equal(result.findings[0]?.from, '$.app.ptr');
+  assert.equal(result.findings[0]?.from, '$.app[0]');
 });
 
 test('lintAeonFiles reports clone references landing in a protected scope', async () => {

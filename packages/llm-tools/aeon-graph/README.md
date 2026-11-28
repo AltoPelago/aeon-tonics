@@ -38,9 +38,10 @@ aeon-graph --examples
 The implementation recursively discovers `.aeon` files, compiles them to AES,
 projects native events to portable occurrences, emits structural `contains`
 edges for parent/child paths, and emits reference edges for clone and pointer
-references. Node graphs therefore include `NodeLiteral -> NodeHead -> content`
-paths such as `$.view`, `$.view[0]`, and `$.view[0][0]`; diagnostic path fields
-use the same address space. Use `--edge-kind contains|clone|pointer` to
+references. A graph includes one occurrence for each node and reports its
+intrinsic `tag` in JSON. In `<view@{title = "Main"}("hello")>`, the graph
+connects `$.view` directly to `$.view[0]` and `$.view.@.title`.
+Diagnostic paths and reference edges use these same addresses. Use `--edge-kind contains|clone|pointer` to
 isolate structural, clone, or pointer relationships. Use `--descendants <path>` and
 `--ancestors <path>` to traverse structural containment scopes before applying other filters. Use
 `--format text|json|dot|paths` to choose compact text, machine-readable JSON, Graphviz DOT, or a
