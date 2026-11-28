@@ -2,6 +2,7 @@ import { buildAnnotations, type AssignmentEvent, type AttributeEntry } from '../
 import { formatDatatypeAnnotation } from '../../../../../aeon/implementations/typescript/packages/aes/dist/datatype.js';
 import { formatReferenceTargetPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/reference-target.js';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import { tokenize, TokenType } from '../../../../../aeon/implementations/typescript/packages/lexer/dist/index.js';
 import type { Value } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import { minimize, type MinimizeOptions, type MinimizeResult } from '../../../export/minizer/dist/index.js';
 
@@ -168,10 +169,7 @@ function renderDocument(
   options: MinimizeOptions = {},
 ): MinimizeResult {
   const fields = header.filter((event) => event.path.segments.length === 2);
-  if (fields.every((event) =>
-    /^aeon:[A-Za-z_][A-Za-z0-9_]*$/u.test(event.key) && event.key !== 'aeon:header'
-    && !event.structuralId && !event.datatype && !event.annotations?.size
-  )) {
+  if (fields.every(canRenderShorthandHeader)) {
     return minimize([...fields, ...body], options);
   }
 
@@ -183,6 +181,19 @@ function renderDocument(
   const bodyText = minimize(body).text;
   const text = bodyText ? `${headerText}\n${bodyText}` : headerText;
   return { text: options.trailingNewline ? `${text}\n` : text };
+}
+
+function canRenderShorthandHeader(event: AssignmentEvent): boolean {
+  const prefix = 'aeon:';
+  if (!event.key.startsWith(prefix) || event.structuralId || event.datatype || event.annotations?.size) {
+    return false;
+  }
+  const field = event.key.slice(prefix.length);
+  // Core reads these spellings as the structured header wrapper and a typed body binding.
+  if (field === 'header' || field === 'envelope') return false;
+
+  const [token] = tokenize(field).tokens;
+  return token?.type === TokenType.Identifier && token.value === field;
 }
 
 function toBindingView(event: AssignmentEvent): StarterTonicBinding {

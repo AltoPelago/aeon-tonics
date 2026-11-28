@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import {
+  adaptTypeScriptAssignmentEventsToPortableAes,
+  compile,
+  projectPortableEvents,
+} from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import type { Value } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import {
   createStarterTonicFromAeon,
@@ -267,3 +271,24 @@ test('starter tonic retains header fields that require a structured spelling', (
     .map((event) => [event.key, event.value.type]);
   assert.deepEqual(header(replay.events), header(compile(source).events));
 });
+
+for (const field of ['"true"="value"', 'yes="yes"', 'envelope={nested=1}']) {
+  test(`starter tonic preserves structured header field ${field} through a body write and AEON export`, () => {
+    const source = `aeon:header={${field}}\n<panel>`;
+    const doc = createStarterTonicFromAeon(source);
+
+    doc.set('published', true);
+    assert.equal(doc.snapshot()['published'], true);
+
+    const text = exportStarterTonicAeon(doc).text;
+    assert.match(text, /^aeon:header=\{/u);
+    const replay = compile(text, { datatypePolicy: 'allow_custom' });
+    const expected = compile(`${source}\npublished=true`);
+    assert.deepEqual(replay.errors, []);
+    assert.deepEqual(expected.errors, []);
+    const projectDocument = (events: typeof replay.events) =>
+      adaptTypeScriptAssignmentEventsToPortableAes(events, { includeHeaders: true }).events;
+    assert.deepEqual(projectDocument(replay.events), projectDocument(expected.events));
+    assert.deepEqual(replay.events.map((event) => event.sourcePlane), expected.events.map((event) => event.sourcePlane));
+  });
+}
