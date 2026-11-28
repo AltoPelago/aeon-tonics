@@ -28,6 +28,7 @@ export type AesDiffDeltaPart =
 export type AesDiffDiagnosticCode =
   | 'AEON_COMPILE_ERROR'
   | 'DUPLICATE_PATH'
+  | 'AMBIGUOUS_SOURCE_PLANE'
   | 'PATCH_NOT_APPLICABLE'
   | 'PATCH_STALE_BASE';
 
@@ -267,9 +268,9 @@ export function diffAes<TEvent extends AesEvent>(
 ): AesDiffResult<TEvent> {
   const resolvedOptions = { ...DEFAULT_OPTIONS, ...options };
   const before = indexEvents('before', beforeEvents, resolvedOptions,
-    resolvedOptions.includeHeaders ? undefined : nativePlaneHints(afterEvents));
+    resolvedOptions.includeHeaders ? undefined : matchingLegacyBodyPaths(beforeEvents, afterEvents, resolvedOptions.pathFilters));
   const after = indexEvents('after', afterEvents, resolvedOptions,
-    resolvedOptions.includeHeaders ? undefined : nativePlaneHints(beforeEvents));
+    resolvedOptions.includeHeaders ? undefined : matchingLegacyBodyPaths(afterEvents, beforeEvents, resolvedOptions.pathFilters));
   const diagnostics = [...before.diagnostics, ...after.diagnostics];
   const paths = [...new Set([...before.events.keys(), ...after.events.keys()])].sort();
   const changes: AesChange<TEvent>[] = [];
@@ -299,6 +300,17 @@ export function diffAes<TEvent extends AesEvent>(
     );
     if (delta.parts.length === 0) {
       unchanged += 1;
+      continue;
+    }
+
+    if (!resolvedOptions.includeHeaders && (
+      isUnlabelledHeaderPrefix(beforeEvent.event, path) || isUnlabelledHeaderPrefix(afterEvent.event, path)
+    )) {
+      diagnostics.push({
+        code: 'AMBIGUOUS_SOURCE_PLANE',
+        path,
+        message: 'A changed aeon-prefixed native event needs an explicit source plane when excluding headers.',
+      });
       continue;
     }
 
@@ -449,10 +461,7 @@ export function applyAesPatch<TEvent extends AesEvent>(
     };
   }
 
-  const legacyPlaneHints = resolvedOptions.includeHeaders ? undefined : nativePlaneHints(
-    patch.operations.flatMap((operation) => operation.op === 'add' ? [] : [operation.before]),
-  );
-  const indexed = indexEvents('before', baseEvents, resolvedOptions, legacyPlaneHints);
+  const indexed = indexEvents('before', baseEvents, resolvedOptions);
   const diagnostics: AesDiffDiagnostic[] = [...indexed.diagnostics];
   const next = new Map([...indexed.events.entries()].map(([path, entry]) => [path, entry.event]));
 
@@ -606,33 +615,51 @@ function alignLegacyPlane(
   return header === semantic.header ? semantic : { ...semantic, header };
 }
 
-// A counterpart provides a plane hint only when its explicit records agree at that path.
-function nativePlaneHints(events: readonly AesEvent[]): ReadonlyMap<string, boolean | null> {
-  const planes = new Map<string, boolean | null>();
-  for (const event of events) {
-    if (isPortableRecord(event) || event.sourcePlane === undefined) continue;
-    const member = event.path.segments[1];
-    if (member?.type !== 'member' || !member.key.startsWith('aeon:')) continue;
+function matchingLegacyBodyPaths(
+  legacyEvents: readonly AesEvent[],
+  labelledEvents: readonly AesEvent[],
+  pathFilters: readonly string[],
+): ReadonlySet<string> | undefined {
+  let candidates: Set<string> | undefined;
+  for (const event of legacyEvents) {
+    if (isPortableRecord(event) || event.sourcePlane !== undefined || !hasAeonPrefix(event)) continue;
     const path = aesEventPath(event);
-    const header = event.sourcePlane === 'header';
-    const previous = planes.get(path);
-    planes.set(path, previous === undefined || previous === header ? header : null);
+    if (matchesPathFilters(path, pathFilters)) (candidates ??= new Set()).add(path);
   }
-  return planes;
+  if (!candidates?.size) return undefined;
+
+  const matches = new Set<string>();
+  for (const event of labelledEvents) {
+    if (isPortableRecord(event) || event.sourcePlane !== 'body' || !hasAeonPrefix(event)) continue;
+    const path = aesEventPath(event);
+    if (candidates.delete(path)) matches.add(path);
+    if (candidates.size === 0) break;
+  }
+  return matches;
+}
+
+function hasAeonPrefix(event: AssignmentEvent): boolean {
+  const member = event.path.segments[1];
+  return member?.type === 'member' && member.key.startsWith('aeon:');
+}
+
+function isUnlabelledHeaderPrefix(event: AesEvent, path: string): boolean {
+  return !isPortableRecord(event) && event.sourcePlane === undefined && isHeaderPath(path);
 }
 
 function indexEvents<TEvent extends AesEvent>(
   side: 'before' | 'after',
   events: readonly TEvent[],
   options: Required<DiffAesOptions>,
-  legacyPlaneHints?: ReadonlyMap<string, boolean | null>,
+  matchingLegacyBodyPaths?: ReadonlySet<string>,
 ): IndexedEvents<TEvent> {
   const indexed = new Map<string, NormalizedEvent<TEvent>>();
   const diagnostics: AesDiffDiagnostic[] = [];
 
   for (const event of events) {
     const path = aesEventPath(event);
-    if (!options.includeHeaders && isHeaderEvent(event, path, legacyPlaneHints?.get(path) ?? undefined)) {
+    if (!options.includeHeaders && isHeaderEvent(event, path)
+      && !(isUnlabelledHeaderPrefix(event, path) && matchingLegacyBodyPaths?.has(path))) {
       continue;
     }
     if (!matchesPathFilters(path, options.pathFilters)) {
@@ -870,9 +897,9 @@ function aesEventPath(event: AesEvent): string {
   return formatPath(event.path);
 }
 
-function isHeaderEvent(event: AesEvent, path: string, legacyHeaderHint?: boolean): boolean {
+function isHeaderEvent(event: AesEvent, path: string): boolean {
   if (isPortableRecord(event)) return typeof event.header === 'string';
-  return event.sourcePlane === undefined ? (legacyHeaderHint ?? isHeaderPath(path)) : event.sourcePlane === 'header';
+  return event.sourcePlane === undefined ? isHeaderPath(path) : event.sourcePlane === 'header';
 }
 
 function isHeaderPath(path: string): boolean {
