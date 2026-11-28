@@ -28,18 +28,18 @@ not in this reference surface itself.
 
 ## Root
 
-The root must be a top-level AEON `node` binding with tag `document`.
+The root is an intrinsic AEON node with tag `document` at `$.document`.
 
 Example:
 
 ```aeon
-doc:node = <document(
+<document(
   <heading@{level:number=1}("Hello World")>,
   <paragraph("This is ", <strong("important")>, ".")>
 )>
 ```
 
-When no explicit root key is supplied, the model picks the first top-level `document` node.
+The optional `rootKey` and `bindingKey` arguments accept `document`.
 
 ## Block Nodes
 

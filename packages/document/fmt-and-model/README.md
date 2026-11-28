@@ -209,11 +209,9 @@ path helpers provide a small typed mutation layer over the same tree.
 If your code starts to look like repeated path lookup plus routine semantic edit steps, that is the
 point where [`@aeon-tonics/fmt-and-editor`](../fmt-and-editor/README.md) is usually the better fit.
 
-## Source Of Truth
+## References
 
-See:
-
-- `../and-core/docs/spec/v1/fmt-and-reference.md` in a sibling `and-core` checkout
-- `../and-core/docs/spec/v1/and-public-api.md` in a sibling `and-core` checkout
-
-Those documents define the current intended boundary more precisely than this package README.
+The package's [fmt.and reference](FMT_AND_REFERENCE.md) describes the AEON
+and AES projection, including the intrinsic document root at `$.document`.
+The sibling `and-core` repository documents the &ND text grammar and
+bridge API in `docs/spec/v1/and-public-api.md`.

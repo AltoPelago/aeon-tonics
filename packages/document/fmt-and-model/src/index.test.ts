@@ -51,7 +51,7 @@ import {
 
 test('fmt.and model projects strict nd-shaped nodes from aeon', () => {
   const document = createFmtAndDocumentFromAeon(`
-doc:node = <document(
+<document(
   <heading@{level:number=2}("Title")>,
   <paragraph("Hello ", <strong("world")>, <link@{href:string="https://example.test"}("link")>)>,
   <list@{ordered:boolean=false}(
@@ -66,7 +66,7 @@ doc:node = <document(
 )>
 `);
 
-  assert.equal(document.bindingKey, 'doc');
+  assert.equal(document.bindingKey, 'document');
   assert.equal(document.root.children.length, 5);
   assert.deepEqual(document.root.children[0], {
     type: 'heading',
@@ -120,7 +120,7 @@ test('fmt.and model exports edited documents back to aes and minimized aeon', ()
       },
     ],
   }, {
-    bindingKey: 'article',
+    bindingKey: 'document',
   });
 
   document.root.children.push({
@@ -137,11 +137,11 @@ test('fmt.and model exports edited documents back to aes and minimized aeon', ()
   });
 
   const exportedEvents = exportFmtAndAes(document).map((event) => ({ path: formatPath(event.path), type: event.value.type }));
-  assert.deepEqual(exportedEvents[0], { path: '$.article', type: 'NodeLiteral' });
-  assert.ok(exportedEvents.some((event) => event.path === '$.article[3][1]' && event.type === 'NodeLiteral'));
+  assert.deepEqual(exportedEvents[0], { path: '$.document', type: 'NodeLiteral' });
+  assert.ok(exportedEvents.some((event) => event.path === '$.document[3][1]' && event.type === 'NodeLiteral'));
   assert.equal(
     exportFmtAndAeon(document).text,
-    'article:node=<document(<heading@{level:number=1}("Guide")>,<code_block@{ordered:boolean=true,language:string="aeon"}("title = \\"Guide\\"")>,<extension_block@{name:string="document/meta"}("title = \\"Guide\\"",<document_fragment(<paragraph("Metadata unavailable.")>)>)>,<paragraph("Read ",<link@{href:string="https://example.test"}("more")>,".")>)>',
+    '<document(<heading@{level:number=1}("Guide")>,<code_block@{ordered:boolean=true,language:string="aeon"}("title = \\"Guide\\"")>,<extension_block@{name:string="document/meta"}("title = \\"Guide\\"",<document_fragment(<paragraph("Metadata unavailable.")>)>)>,<paragraph("Read ",<link@{href:string="https://example.test"}("more")>,".")>)>',
   );
 });
 
@@ -511,7 +511,7 @@ test('fmt.and model path helpers can read and mutate nested structures', () => {
 });
 
 test('fmt.and model can project directly from aes', () => {
-  const compiled = compile('doc:node = <document(<blockquote(<paragraph("ok")>)>)>', {
+  const compiled = compile('<document(<blockquote(<paragraph("ok")>)>)>', {
     datatypePolicy: 'allow_custom',
   });
   assert.equal(compiled.errors.length, 0);
@@ -593,8 +593,8 @@ test('fmt.and model bridges from nd ast shape into fmt.and and back', () => {
     ],
   };
 
-  const document = createFmtAndDocumentFromNdDocument(ndDocument, { rootKey: 'doc' });
-  assert.equal(document.bindingKey, 'doc');
+  const document = createFmtAndDocumentFromNdDocument(ndDocument, { rootKey: 'document' });
+  assert.equal(document.bindingKey, 'document');
   assert.deepEqual(document.root.children[1], {
     type: 'list',
     ordered: true,
@@ -727,15 +727,25 @@ Text
 
 test('fmt.and model rejects unsupported nodes and invalid attributes', () => {
   assert.throws(
-    () => createFmtAndDocumentFromAeon('doc:node = <document(<script("bad")>)>'),
+    () => createFmtAndDocumentFromAeon('<document(<script("bad")>)>'),
     /unsupported block node/,
   );
   assert.throws(
-    () => createFmtAndDocumentFromAeon('doc:node = <document(<heading@{level:number=7}("bad")>)>'),
+    () => createFmtAndDocumentFromAeon('<document(<heading@{level:number=7}("bad")>)>'),
     /heading requires level:number from 1 to 6/,
   );
   assert.throws(
-    () => createFmtAndDocumentFromAeon('doc:node = <document(<extension_block("bad")>)>'),
+    () => createFmtAndDocumentFromAeon('<document(<extension_block("bad")>)>'),
     /requires name:string/,
   );
+});
+
+test('fmt.and uses the document tag at its intrinsic path', () => {
+  const source = '<document(<paragraph("hello")>)>';
+  // @ts-expect-error Exercise the runtime guard for JavaScript callers.
+  assert.throws(() => createFmtAndDocumentFromAeon(source, { rootKey: 'article' }), /root key must be "document"/);
+  assert.throws(() => createFmtAndDocumentFromAeon('<article(<paragraph("hello")>)>'), /top-level document node/);
+  const document = createFmtAndDocumentFromAeon(source, { rootKey: 'document' });
+  assert.equal(document.bindingKey, 'document');
+  assert.equal(exportFmtAndAeon(document).text, source);
 });
