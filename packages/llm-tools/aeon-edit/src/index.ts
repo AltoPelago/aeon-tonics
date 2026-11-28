@@ -34,7 +34,8 @@ import { convertAeonMode, type AeonModeConversionTarget } from '../../../export/
 import { prettifyAeon } from '../../../export/prettifier/dist/index.js';
 import {
   DatatypeLiteralMismatchError,
-  MissingReferenceTargetError,
+  ReferenceValidationError,
+  formatPath,
   type AttributeEntry,
 } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import {
@@ -1338,17 +1339,26 @@ function parseAeonExpectationSnippet(snippet: string): TitonicValue {
     maxAttributeDepth: DEFAULT_MAX_ATTRIBUTE_DEPTH,
     recovery: true,
   });
-  // Compare a missing attribute reference against the edited document's
-  // already validated metadata. An isolated guard cannot check its target type.
-  const externalAttributes = new Set(compiled.errors.flatMap((error) =>
-    error instanceof MissingReferenceTargetError && error.sourcePath.includes('.@.') ? [error.sourcePath] : []));
-  const errors = compiled.errors.filter((error) => {
-    if (error instanceof MissingReferenceTargetError) return !externalAttributes.has(error.sourcePath);
-    if (error instanceof DatatypeLiteralMismatchError) return !externalAttributes.has(error.path);
-    return true;
-  });
-  if (errors.length > 0) {
-    throw new Error(`Invalid AEON value guard: ${errors.map((error) => `${error.code}: ${error.message}`).join('\n')}`);
+  if (compiled.errors.length > 0) {
+    // A standalone snippet changes the scope of references. Compare intrinsic
+    // attribute references with the corresponding, validated live metadata.
+    const referencePaths = new Set<string>();
+    for (const event of compiled.events) {
+      if (event.sourcePlane !== 'header' && event.value.type === 'NodeLiteral') {
+        collectAttributeReferencePaths(event.annotations, formatPath(event.path), referencePaths);
+      }
+    }
+    const errors = compiled.errors.filter((error) => {
+      if (error instanceof DatatypeLiteralMismatchError) return !referencePaths.has(error.path);
+      if (error instanceof ReferenceValidationError && (error.code === 'MISSING_REFERENCE_TARGET'
+        || error.code === 'SELF_REFERENCE' || error.code === 'FORWARD_REFERENCE')) {
+        return !referencePaths.has(error.sourcePath);
+      }
+      return true;
+    });
+    if (errors.length > 0) {
+      throw new Error(`Invalid AEON value guard: ${errors.map((error) => `${error.code}: ${error.message}`).join('\n')}`);
+    }
   }
   const document = createTitonicFromAes(compiled.events);
   const keys = Object.keys(document);
@@ -1360,6 +1370,20 @@ function parseAeonExpectationSnippet(snippet: string): TitonicValue {
     throw new Error('Expected an intrinsic AEON node in the guard.');
   }
   return value;
+}
+
+function collectAttributeReferencePaths(
+  entries: ReadonlyMap<string, AttributeEntry> | undefined,
+  owner: string,
+  paths: Set<string>,
+): void {
+  for (const [key, entry] of entries ?? []) {
+    const path = appendPathMember(`${owner}.@`, key);
+    if (entry.value.type === 'CloneReference' || entry.value.type === 'PointerReference') {
+      paths.add(path);
+    }
+    collectAttributeReferencePaths(entry.annotations, path, paths);
+  }
 }
 
 function parseAeonAttributeEntrySnippet(snippet: string): AttributeEntry {

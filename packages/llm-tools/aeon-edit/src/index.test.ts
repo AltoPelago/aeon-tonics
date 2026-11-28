@@ -506,6 +506,17 @@ test('whole-node guards preserve attribute reference paths from the edited docum
   }
 });
 
+test('nested node guards preserve references when their tags match external keys', () => {
+  for (const ref of ['~', '~>']) {
+    const source = `aeon:mode="strict"\noutside:string="value"\nother:string="value"\nbox:object={<outside@{ref:string=${ref}outside}:node>}`;
+    const result = planAeonEditSet(source, '$.box.outside', '<outside("after")>');
+    const { operations } = result.value as { operations: readonly AeonEditBatchOperation[] };
+    assert.equal(applyAeonEditBatch(source, operations).ok, true);
+    assert.equal(preflightAeonEditBatch(source.replace(`${ref}outside`, `${ref}other`), operations).diagnostics[0]?.code,
+      'EXPECTATION_MISMATCH');
+  }
+});
+
 test('value guards enforce strict datatype assertions before edits', () => {
   const source = 'aeon:mode="strict"\nbox:object={label:string="before"}\n<panel("before")>';
   assert.throws(() => applyAeonEditBatch(source, [
