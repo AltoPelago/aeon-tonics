@@ -34,14 +34,28 @@ test('prettify keeps quoted aeon-prefixed body keys distinct from header referen
   assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
 });
 
-test('prettify preserves structural identities at every headed occurrence', () => {
-  const source = 'value\\BIND\\@{source\\META\\:string="user"}=<tag\\HEAD\\(\\CHILD\\:string="text")>';
+test('prettify preserves intrinsic nodes, child order and identities', () => {
+  const source = String.raw`<tag\ROOT\@{source\META\:string="user",<badge\BADGE\>}(\CHILD\:string="text",<part>,<part>)>
+object={<section>}
+attached@{<mark>}=true
+copy=~tag[0]`;
   const result = prettifyAeon(source);
-
-  assert.equal(
-    result.text,
-    'value\\BIND\\@{source\\META\\:string = "user"} = <tag\\HEAD\\(\\CHILD\\:string = "text")>',
-  );
+  assert.equal(result.text, String.raw`<tag\ROOT\@{source\META\:string = "user", <badge\BADGE\>}(
+  \CHILD\:string = "text",
+  <part>,
+  <part>
+)>
+object = {
+  <section>
+}
+attached@{<mark>} = true
+copy = ~tag[0]`);
+  const before = compile(source);
+  const after = compile(result.text);
+  assert.deepEqual(before.errors, []);
+  assert.deepEqual(after.errors, []);
+  assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
+  assert.equal(prettifyAeon(result.text).text, result.text);
 });
 
 test('prettify expands minimized aeon without reordering top-level bindings', () => {
@@ -52,7 +66,7 @@ test('prettify expands minimized aeon without reordering top-level bindings', ()
     result.text,
     [
       'z:number = 1',
-      'aeon:mode = "strict"',
+      '"aeon":mode = "strict"',
       'app:object = {',
       '  name:string = "AEON"',
       '  config:object = {',
@@ -71,10 +85,9 @@ test('prettify expands minimized aeon without reordering top-level bindings', ()
 
   const roundTrip = compile(result.text);
   assert.equal(roundTrip.errors.length, 0);
-  assert.deepEqual(
-    roundTrip.events.map((event) => formatPath(event.path)),
-    compile(source).events.map((event) => formatPath(event.path)),
-  );
+  const bindings = (events: typeof roundTrip.events) => events.map((event) =>
+    [formatPath(event.path), event.sourcePlane, event.datatype]);
+  assert.deepEqual(bindings(roundTrip.events), bindings(compile(source).events));
 });
 
 test('prettify renders lowered aeon shortcut headers without datatypes', () => {

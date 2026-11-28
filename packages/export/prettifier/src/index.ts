@@ -57,12 +57,13 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
 }
 
 function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): string {
+  if (event.value.type === 'NodeLiteral') return renderNode(event.value, context, 0);
   const segment = event.path.segments[1] as RootMemberSegment;
   const aeonShortcutHeader = event.sourcePlane === undefined
     ? segment.key.startsWith('aeon:') : event.sourcePlane === 'header';
-  const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key);
   const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
   const datatype = aeonShortcutHeader ? '' : renderEventDatatype(event.datatype);
+  const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key, datatype);
   return `${key}${structuralId}${renderAnnotations(event.annotations, context, 0)}${datatype} = ${renderValue(event.value, context, 0)}`;
 }
 
@@ -71,7 +72,7 @@ function renderValue(value: Value, context: RenderContext, depth: number): strin
     case 'TypedValue':
       return `${renderStructuralIdentity(value.structuralId)}${renderAttributes(value.attributes, context, depth)}${formatDatatype(value.datatype)} = ${renderValue(value.value, context, depth)}`;
     case 'StringLiteral':
-      return formatString(value.value);
+      return value.trimticks ? value.raw : formatString(value.value);
     case 'NumberLiteral':
     case 'InfinityLiteral':
     case 'NaNLiteral':
@@ -143,7 +144,9 @@ function renderBinding(
   context: RenderContext,
   depth: number,
 ): string {
-  return `${formatBindingKey(key)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes, context, depth)}${formatDatatype(datatype)} = ${renderValue(value, context, depth)}`;
+  if (value.type === 'NodeLiteral') return renderNode(value, context, depth);
+  const type = formatDatatype(datatype);
+  return `${formatBindingKey(key, type)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes, context, depth)}${type} = ${renderValue(value, context, depth)}`;
 }
 
 function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number): string {
@@ -151,15 +154,15 @@ function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: Ren
   const attrs = renderAttributes(value.attributes, context, depth);
   const datatype = formatDatatype(value.datatype);
   if (value.children.length === 0) {
-    return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}>`;
+    return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}>`;
   }
   if (value.children.every(isInlineValue)) {
-    return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}(${value.children.map((child) => renderValue(child, context, depth)).join(', ')})>`;
+    return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}(${value.children.map((child) => renderValue(child, context, depth)).join(', ')})>`;
   }
   const children = value.children
     .map((child) => `${indent(context, depth + 1)}${renderValue(child, context, depth + 1)}`)
     .join(',\n');
-  return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
+  return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
 }
 
 function renderAnnotations(
@@ -189,8 +192,10 @@ function renderAttributes(
     .map((attribute) => {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
+          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth);
+          const datatype = formatDatatype(entry.datatype);
           const nested = renderAttributes(entry.attributes, context, depth);
-          return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${nested}${formatDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
+          return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${nested}${datatype} = ${renderValue(entry.value, context, depth)}`;
         })
         .join(', ');
       return `@{${entries}}`;
@@ -199,7 +204,9 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry, context: RenderContext, depth: number): string {
-  return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations, context, depth)}${renderEventDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
+  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth);
+  const datatype = renderEventDatatype(entry.datatype);
+  return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations, context, depth)}${datatype} = ${renderValue(entry.value, context, depth)}`;
 }
 
 function renderStructuralIdentity(structuralId: string | null | undefined): string {
@@ -223,8 +230,9 @@ function formatDatatype(
   return `:${datatype.name}${generics}${clarifiers}`;
 }
 
-function formatBindingKey(key: string): string {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
+function formatBindingKey(key: string, datatype: string): string {
+  // An adjacent aeon: is lexed as a header namespace.
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && (key !== 'aeon' || datatype === '') ? key : formatString(key);
 }
 
 function formatString(value: string): string {
@@ -272,7 +280,7 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     if (typeof segment === 'object' && segment.type === 'attr') {
       result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
         ? `.@.${segment.key}`
-        : `.@.["${escapeQuotedPathSegment(segment.key)}"]`;
+        : `.@.[${formatString(segment.key)}]`;
       continue;
     }
 
@@ -282,14 +290,11 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     const member = segment as string;
     result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(member)
       ? member
-      : `["${escapeQuotedPathSegment(member)}"]`;
+      : `[${formatString(member)}]`;
   }
   return result;
 }
 
-function escapeQuotedPathSegment(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
 
 function indent(context: RenderContext, depth: number): string {
   return context.indent.repeat(depth);

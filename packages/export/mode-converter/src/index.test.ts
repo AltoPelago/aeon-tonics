@@ -12,13 +12,29 @@ test('convertAeonMode preserves structural identities', () => {
   assert.equal(result.text, 'aeon:mode="strict"\nage\\A1\\:number=42\nitems:list=[\\B2\\:string="green"]');
 });
 
-test('convertAeonMode preserves attribute-entry and node-head structural identities', () => {
-  const result = convertAeonMode(
-    'aeon:mode = "transport"\nvalue@{source\\META\\ = "user"} = <tag\\HEAD\\>',
-    { target: 'strict' },
-  );
-  assert.match(result.text, /source\\META\\:string="user"/);
-  assert.match(result.text, /<tag\\HEAD\\:node>/);
+test('convertAeonMode keeps intrinsic node metadata and direct targets in strict mode', () => {
+  const source = String.raw`aeon:mode = "transport"
+<"aeon:mode">
+<tag\TAG\@{source\META\ = "user", <badge\ID\("mark")>}("value", <item>)>
+copy = ~tag
+first = ~tag[0]
+item = ~>tag[1]
+mark = ~tag.@.badge[0]`;
+  const result = convertAeonMode(source, { target: 'strict' });
+  assert.equal(result.text, String.raw`aeon:mode="strict"
+<"aeon:mode":node>
+<tag\TAG\@{source\META\:string="user",<badge\ID\:node(:string="mark")>}:node(:string="value",<item:node>)>
+copy:node=~tag
+first:string=~tag[0]
+item:node=~>tag[1]
+mark:string=~tag.@.badge[0]`);
+  const before = compile(source);
+  const after = compile(result.text);
+  assert.deepEqual(before.errors, []);
+  assert.deepEqual(after.errors, []);
+  const occurrences = (events: typeof before.events) => projectPortableEvents(events)
+    .map(({path, kind, identity, tag, value}) => ({path, kind, identity, tag, value}));
+  assert.deepEqual(occurrences(after.events), occurrences(before.events));
 });
 
 test('convertAeonMode strips ordinary datatypes when converting strict to transport', () => {
@@ -144,14 +160,14 @@ test('convertAeonMode rejects explicit custom datatypes when converting to stric
 test('convertAeonMode strips node literal datatypes in transport mode', () => {
   const source = [
     'aeon:mode = "strict"',
-    'panel:node = <card:node("title")>',
+    '<card:node("title")>',
   ].join('\n');
 
   const result = convertAeonMode(source, { target: 'transport' });
 
   assert.equal(result.text, [
     'aeon:mode="transport"',
-    'panel=<card("title")>',
+    '<card("title")>',
   ].join('\n'));
   assert.equal(compile(result.text).errors.length, 0);
 });
@@ -233,7 +249,7 @@ const symbolicSource = [
   'nested = { value\\NESTED\\ = |nested| }',
   'items = [\\ITEM\\ = |list|]',
   'pair = (|tuple|)',
-  'panel = <tag\\HEAD\\(|child|)>',
+  '<tag\\HEAD\\(|child|)>',
   'copy = ~status',
   'pointer = ~>nested.value',
 ].join('\n');

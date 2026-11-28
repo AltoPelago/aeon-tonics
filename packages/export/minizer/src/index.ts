@@ -41,12 +41,13 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
 }
 
 function renderTopLevelBinding(event: AssignmentEvent): string {
+  if (event.value.type === 'NodeLiteral') return renderNode(event.value);
   const segment = event.path.segments[1] as RootMemberSegment;
   const aeonShortcutHeader = event.sourcePlane === undefined
     ? segment.key.startsWith('aeon:') : event.sourcePlane === 'header';
-  const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key);
   const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
   const datatype = aeonShortcutHeader ? '' : renderDatatype(event.datatype);
+  const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key, datatype);
   return `${key}${structuralId}${renderAnnotations(event.annotations)}${datatype}=${renderValue(event.value)}`;
 }
 
@@ -55,7 +56,7 @@ function renderValue(value: Value): string {
     case 'TypedValue':
       return `${renderStructuralIdentity(value.structuralId)}${renderAttributes(value.attributes)}${formatDatatype(value.datatype)}=${renderValue(value.value)}`;
     case 'StringLiteral':
-      return formatString(value.value);
+      return value.trimticks ? value.raw : formatString(value.value);
     case 'NumberLiteral':
     case 'InfinityLiteral':
     case 'NaNLiteral':
@@ -98,7 +99,9 @@ function renderBinding(
   attributes: readonly Attribute[],
   structuralId: string | null,
 ): string {
-  return `${formatBindingKey(key)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes)}${formatDatatype(datatype)}=${renderValue(value)}`;
+  if (value.type === 'NodeLiteral') return renderNode(value);
+  const type = formatDatatype(datatype);
+  return `${formatBindingKey(key, type)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes)}${type}=${renderValue(value)}`;
 }
 
 function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
@@ -108,7 +111,7 @@ function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
   const children = value.children.length > 0
     ? `(${value.children.map((child) => renderValue(child)).join(',')})`
     : '';
-  return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}${children}>`;
+  return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}${children}>`;
 }
 
 function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
@@ -132,8 +135,10 @@ function renderAttributes(
     .map((attribute) => {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
+          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value);
+          const datatype = formatDatatype(entry.datatype);
           const nested = renderAttributes(entry.attributes);
-          return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${nested}${formatDatatype(entry.datatype)}=${renderValue(entry.value)}`;
+          return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${nested}${datatype}=${renderValue(entry.value)}`;
         })
         .join(',');
       return `@{${entries}}`;
@@ -142,7 +147,9 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry): string {
-  return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations)}${renderDatatype(entry.datatype)}=${renderValue(entry.value)}`;
+  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value);
+  const datatype = renderDatatype(entry.datatype);
+  return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations)}${datatype}=${renderValue(entry.value)}`;
 }
 
 function renderDatatype(datatype: string | undefined): string {
@@ -166,8 +173,9 @@ function renderStructuralIdentity(structuralId: string | null | undefined): stri
   return structuralId ? `\\${structuralId}\\` : '';
 }
 
-function formatBindingKey(key: string): string {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
+function formatBindingKey(key: string, datatype: string): string {
+  // An adjacent aeon: is lexed as a header namespace.
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && (key !== 'aeon' || datatype === '') ? key : formatString(key);
 }
 
 function formatString(value: string): string {
@@ -215,7 +223,7 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     if (typeof segment === 'object' && segment.type === 'attr') {
       result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
         ? `.@.${segment.key}`
-        : `.@.["${escapeQuotedPathSegment(segment.key)}"]`;
+        : `.@.[${formatString(segment.key)}]`;
       continue;
     }
 
@@ -225,11 +233,7 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     const member = segment as string;
     result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(member)
       ? member
-      : `["${escapeQuotedPathSegment(member)}"]`;
+      : `[${formatString(member)}]`;
   }
   return result;
-}
-
-function escapeQuotedPathSegment(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }

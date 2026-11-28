@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import { formatPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { minimize } from './index.js';
 
 test('minimize preserves structural identities in named and anonymous heads', () => {
@@ -11,11 +11,28 @@ test('minimize preserves structural identities in named and anonymous heads', ()
   assert.equal(minimize(result.events).text, 'age\\A1\\:int32=42\nitems=[\\B2\\:string="green"]');
 });
 
-test('minimize preserves structural identities on attribute-entry and node heads', () => {
-  const source = 'value@{source\\META\\:string = "user"} = <tag\\HEAD\\>';
-  const result = compile(source);
-  assert.equal(result.errors.length, 0);
-  assert.equal(minimize(result.events).text, 'value@{source\\META\\:string="user"}=<tag\\HEAD\\>');
+test('minimize renders node declarations directly in every scope', () => {
+  const source = String.raw`<tag\TAG\@{source\META\:string = "user", <badge\BADGE\>}:node("text", <item>, <item>)>
+doc = { <"aeon:header"@{meta = 1}> }
+holder@{<logo@{role = "brand"}>} = 2
+<"aeon":node()>
+copy = ~tag[0]
+pointer = ~>doc.["aeon:header"]
+label = ~holder.@.logo.@.role`;
+  const options = {maxAttributeDepth:2};
+  const before = compile(source, options);
+  assert.deepEqual(before.errors, []);
+  const output = minimize(before.events).text;
+  assert.equal(output, String.raw`<tag\TAG\@{source\META\:string="user",<badge\BADGE\>}:node("text",<item>,<item>)>
+doc={<"aeon:header"@{meta=1}>}
+holder@{<logo@{role="brand"}>}=2
+<"aeon":node>
+copy=~tag[0]
+pointer=~>doc.["aeon:header"]
+label=~holder.@.logo.@.role`);
+  const after = compile(output, options);
+  assert.deepEqual(after.errors, []);
+  assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
 });
 
 test('minimize compacts top-level bindings and preserves nested structure through top-level AES values', () => {
