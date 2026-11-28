@@ -63,9 +63,9 @@ Use these when a value should remain an AEON-native scalar instead of becoming a
 - `isTitonicElement(value)`
   Checks whether a value is a live Titonic element.
 - `getTitonicNodeAttributes(element)`
-  Reads all node-head attributes.
+  Reads all node attributes.
 - `getTitonicNodeAttribute(element, key)`
-  Reads one node-head attribute.
+  Reads one node attribute.
 
 ## Node-Head Attribute CRUD
 
@@ -90,12 +90,12 @@ Use these when the code is working with paths instead of direct property access:
 Example:
 
 ```ts
-getTitonicValue(doc, ['view', TITONIC_CHILDREN, 0]);
+getTitonicValue(doc, ['panel', TITONIC_CHILDREN, 0]);
 ```
 
 These low-level mutation paths are distinct from public portable occurrence
-paths. `resolveTitonicAddress(doc, '$.view[0][0]')` resolves the same first
-child through the portable `NodeLiteral -> NodeHead -> content` hierarchy. Its
+paths. `resolveTitonicAddress(doc, '$.panel[0]')` resolves the same first
+child through the direct portable child path. Its
 binding returns `portablePath` and `pathText`; `titonicPath` is available when a
 caller must pass the result to a low-level Titonic mutation helper.
 
@@ -117,9 +117,8 @@ exhaustion return diagnostics and no bindings. Scan diagnostics retain SANSA
 codes and optional `identity`, `limit`, `observed` and `selectorIndex` context.
 Actual enumeration/allocation cost is separate from logical inspections.
 
-Value occurrences use binding IDs; `NodeLiteral -> NodeHead` traversal exposes
-the head ID independently. A binding's ID does not select its head, or vice
-versa. Alias bindings use their own IDs, not target IDs; navigation beneath
+Intrinsic nodes own their structural IDs. Their indexed children are
+direct occurrences and can carry individual IDs. Alias bindings use their own IDs, not target IDs; navigation beneath
 aliases keeps current portable paths. Identity-selected container values use
 the existing live proxy view, including pointer sharing and clone copy-on-write.
 Reading does not detach a clone or rewrite its structural reference target.

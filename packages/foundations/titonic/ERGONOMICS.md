@@ -28,8 +28,8 @@ Today there are separate helpers for:
 - value CRUD by path
 - binding attribute CRUD by path
 - nested binding attribute annotation CRUD by path
-- node-head attribute CRUD by element
-- nested node-head attribute annotation CRUD by element
+- node attribute CRUD by element
+- nested node attribute annotation CRUD by element
 - native scalar construction
 - node construction
 

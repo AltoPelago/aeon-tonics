@@ -71,7 +71,7 @@ count.attributes.get('unit')
 count.attributes.set('unit', 'ms')
 count.attributes.setAnnotation('unit', 'source', 'ui')
 
-const firstChild = titonicAt(doc, ['view', TITONIC_CHILDREN, 0])
+const firstChild = titonicAt(doc, ['panel', TITONIC_CHILDREN, 0])
 firstChild.get()
 ```
 
@@ -112,8 +112,8 @@ These helpers exist for precise control:
 
 - binding attributes by path
 - nested binding attribute annotations by path
-- node-head attributes by element
-- nested node-head attribute annotations by element
+- node attributes by element
+- nested node attribute annotations by element
 
 Examples:
 

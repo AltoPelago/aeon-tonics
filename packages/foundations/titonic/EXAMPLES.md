@@ -104,10 +104,10 @@ import {
 
 const doc = createTitonicFromAeon(`
 aeon:mode = "strict"
-view:node = <panel:node("hello", <br:node>)>
+<panel:node("hello", <br:node>)>
 `)
 
-const secondChild = titonicAt(doc, ['view', TITONIC_CHILDREN, 1])
+const secondChild = titonicAt(doc, ['panel', TITONIC_CHILDREN, 1])
 secondChild.set(titonicElement('hr', [], { datatype: 'node' }))
 ```
 

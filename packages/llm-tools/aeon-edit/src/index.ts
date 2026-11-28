@@ -336,15 +336,15 @@ export function inspectAeonEditPath(source: string, path: string): AeonEditResul
   const target = resolveAeonEditAddress(document, path);
   const value = getTitonicValue(document, target.titonicPath);
   const event = projectPortableEvents(exportTitonicAes(document)).find((candidate) => candidate.path === path);
-  const attributes = target.kind === 'node-head'
+  const attributes = target.kind === 'node'
     ? summarizeAttributes(getTitonicNodeAttributes(value as TitonicElement))
     : summarizeAttributes(getTitonicAttributes(document, target.titonicPath));
   const inspection: AeonEditInspection = {
     path,
-    kind: target.kind === 'node-head' ? 'node-head' : kindOfTitonicValue(value),
+    kind: kindOfTitonicValue(value),
     ...(event?.datatype === undefined ? {} : { datatype: event.datatype }),
     attributes,
-    children: childPathsForAddress(value, path, target.kind),
+    children: childPathsForAddress(value, path),
   };
   return {
     ok: true,
@@ -762,12 +762,9 @@ export function deleteAeonEditNodeAttributeAnnotation(
 
 function getAeonEditElementAtPath(document: TitonicObject, path: string): TitonicElement {
   const target = resolveAeonEditAddress(document, path);
-  if (target.kind !== 'node-head') {
-    throw new Error(`Node-head metadata requires a NodeHead event path such as "${path}[0]": ${path}`);
-  }
   const value = getTitonicValue(document, target.titonicPath);
   if (!isTitonicElement(value)) {
-    throw new Error(`Path must resolve to a NodeHead event: ${path}`);
+    throw new Error(`Path must resolve to a node: ${path}`);
   }
   return value;
 }
@@ -880,12 +877,9 @@ function preflightNodeAttributeOperation(
   if (target === undefined) {
     return [batchDiagnostic('error', 'PATH_NOT_FOUND', index, operation, `Path does not exist: ${operation.path}`)];
   }
-  if (target.kind !== 'node-head') {
-    return [batchDiagnostic('error', 'TARGET_NOT_NODE', index, operation, `Node metadata operations require a NodeHead event path: ${operation.path}`)];
-  }
   const value = getTitonicValue(document, target.titonicPath);
   if (!isTitonicElement(value)) {
-    return [batchDiagnostic('error', 'TARGET_NOT_NODE', index, operation, `Path does not resolve to a NodeHead event: ${operation.path}`)];
+    return [batchDiagnostic('error', 'TARGET_NOT_NODE', index, operation, `Path does not resolve to a node: ${operation.path}`)];
   }
   const attribute = getTitonicNodeAttribute(value, operation.key);
   const attributeGuardDiagnostics = preflightAttributeExpectation(attribute, operation, index);
@@ -1112,7 +1106,7 @@ function batchOperationResult(
 }
 
 interface AeonEditAddressTarget {
-  readonly kind: 'value' | 'node-head';
+  readonly kind: 'value' | 'node';
   readonly titonicPath: readonly TitonicPathSegment[];
 }
 
@@ -1129,19 +1123,12 @@ function tryResolveAeonEditAddress(document: TitonicObject, path: string): AeonE
 }
 
 function resolveAeonEditValuePath(document: TitonicObject, path: string): readonly TitonicPathSegment[] {
-  const target = resolveAeonEditAddress(document, path);
-  if (target.kind === 'node-head') {
-    throw new Error(`NodeHead event paths require a node-head metadata operation: ${path}`);
-  }
-  return target.titonicPath;
+  return resolveAeonEditAddress(document, path).titonicPath;
 }
 
 function resolveAeonEditMutationPath(document: TitonicObject, path: string): readonly TitonicPathSegment[] {
   const target = tryResolveAeonEditAddress(document, path);
   if (target !== undefined) {
-    if (target.kind === 'node-head') {
-      throw new Error(`NodeHead event paths require a node-head metadata operation: ${path}`);
-    }
     return target.titonicPath;
   }
 
@@ -1150,8 +1137,8 @@ function resolveAeonEditMutationPath(document: TitonicObject, path: string): rea
   const leaf = segments[segments.length - 1]!;
   if (typeof leaf === 'object') throw new Error(`Attribute paths require metadata operations: ${path}`);
   const parent = resolveAeonEditAddress(document, formatPortableEditPath(segments.slice(0, -1)));
-  if (parent.kind === 'node-head') {
-    if (typeof leaf !== 'number') throw new Error(`NodeHead content positions must be indexed: ${path}`);
+  if (parent.kind === 'node') {
+    if (typeof leaf !== 'number') throw new Error(`Node children must be indexed: ${path}`);
     return [...parent.titonicPath, TITONIC_CHILDREN, leaf];
   }
   return [...parent.titonicPath, leaf];
@@ -1162,15 +1149,13 @@ function buildAeonEditAddressIndex(document: TitonicObject): ReadonlyMap<string,
   const seen = new WeakSet<object>();
 
   const visit = (value: TitonicValue, portablePath: string, titonicPath: readonly TitonicPathSegment[]): void => {
-    index.set(portablePath, { kind: 'value', titonicPath });
+    index.set(portablePath, { kind: isTitonicElement(value) ? 'node' : 'value', titonicPath });
     if (!value || typeof value !== 'object' || seen.has(value)) return;
     seen.add(value);
 
     if (isTitonicElement(value)) {
-      const headPath = `${portablePath}[0]`;
-      index.set(headPath, { kind: 'node-head', titonicPath });
       value.children.forEach((child, childIndex) => {
-        visit(child, `${headPath}[${childIndex}]`, [...titonicPath, TITONIC_CHILDREN, childIndex]);
+        visit(child, `${portablePath}[${childIndex}]`, [...titonicPath, TITONIC_CHILDREN, childIndex]);
       });
       return;
     }
@@ -1231,6 +1216,7 @@ function walkTitonicValue(
     kind,
     ...(datatype === undefined ? {} : { datatype }),
     attributes,
+    ...(isTitonicElement(value) ? {nodeAttributes: summarizeAttributes(getTitonicNodeAttributes(value)).map((item) => item.key)} : {}),
   });
 
   if (!value || typeof value !== 'object') {
@@ -1242,17 +1228,8 @@ function walkTitonicValue(
   seen.add(value);
 
   if (isTitonicElement(value)) {
-    const headPath = `${path}[0]`;
-    const headDatatype = datatypes.get(headPath);
-    entries.push({
-      path: headPath,
-      kind: 'node-head',
-      ...(headDatatype === undefined ? {} : { datatype: headDatatype }),
-      attributes: [],
-      nodeAttributes: summarizeAttributes(getTitonicNodeAttributes(value)).map((item) => item.key),
-    });
     value.children.forEach((child, index) => {
-      walkTitonicValue(child, `${headPath}[${index}]`, [...titonicPath, TITONIC_CHILDREN, index], entries, datatypes, document, seen);
+      walkTitonicValue(child, `${path}[${index}]`, [...titonicPath, TITONIC_CHILDREN, index], entries, datatypes, document, seen);
     });
     return;
   }
@@ -1274,11 +1251,8 @@ function walkTitonicValue(
   }
 }
 
-function childPathsForAddress(value: TitonicValue, path: string, kind: AeonEditAddressTarget['kind']): readonly string[] {
-  if (kind === 'value' && isTitonicElement(value)) {
-    return [`${path}[0]`];
-  }
-  if (kind === 'node-head' && isTitonicElement(value)) {
+function childPathsForAddress(value: TitonicValue, path: string): readonly string[] {
+  if (isTitonicElement(value)) {
     return value.children.map((_child, index) => `${path}[${index}]`);
   }
   if (Array.isArray(value)) {
@@ -1333,6 +1307,13 @@ function appendPathMember(path: string, key: string): string {
 
 function parseAeonValueSnippet(snippet: string): TitonicValue {
   const trimmed = snippet.trim();
+  if (trimmed.startsWith('<')) {
+    const document = createTitonicFromAeon(`aeon:mode = "strict"\n${trimmed}`);
+    const keys = Object.keys(document);
+    const value = keys.length === 1 ? getTitonicValue(document, [keys[0]!]) : undefined;
+    if (!isTitonicElement(value)) throw new Error('Expected one intrinsic AEON node.');
+    return value;
+  }
   const datatype = inferSnippetDatatype(trimmed);
   const document = createTitonicFromAeon(`aeon:mode = "strict"\n__value__:${datatype} = ${trimmed}`);
   return getTitonicValue(document, ['__value__']);
