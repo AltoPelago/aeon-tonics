@@ -636,6 +636,7 @@ function normalizeEvent(
       'header',
       'path',
       'kind',
+      'tag',
       'datatype',
       'generics',
       'clarifiers',
@@ -661,6 +662,7 @@ function normalizeEvent(
       },
       value: {
         kind: event.kind ?? null,
+        ...(event.tag !== undefined ? { tag: event.tag } : {}),
         value: event.value ?? null,
       },
     };
@@ -680,7 +682,7 @@ function normalizeEvent(
   const normalized: NormalizedSemanticEvent = {
     path,
     key: event.key,
-    header: isHeaderPath(path),
+    header: isHeaderEvent(event, path),
     identity: event.structuralId ?? null,
     datatype: event.datatype ?? null,
     value: normalizeUnknown(event.value, options),
@@ -832,7 +834,8 @@ function aesEventPath(event: AesEvent): string {
 }
 
 function isHeaderEvent(event: AesEvent, path: string): boolean {
-  return isPortableRecord(event) ? typeof event.header === 'string' : isHeaderPath(path);
+  if (isPortableRecord(event)) return typeof event.header === 'string';
+  return event.sourcePlane === undefined ? isHeaderPath(path) : event.sourcePlane === 'header';
 }
 
 function isHeaderPath(path: string): boolean {

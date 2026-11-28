@@ -7,14 +7,16 @@ import {
   diffAeon,
   diffAes,
   diffTelex,
+  encodePatchedTelex,
+  parseAesTelex,
   formatAesDiffJson,
   formatAesDiffText,
   summarizeAesDiff,
 } from './index.js';
 
 test('diffTelex compares complete portable streams and keeps identity outside path identity', () => {
-  const before = compile('a\\old-id\\:string = "one"\nnode:node = <tag\\head-id\\("child")>');
-  const after = compile('a\\new-id\\:string = "two"\nnode:node = <tag\\head-id\\("child")>');
+  const before = compile('a\\old-id\\:string = "one"\n<tag\\head-id\\("child")>');
+  const after = compile('a\\new-id\\:string = "two"\n<tag\\head-id\\("child")>');
   assert.equal(before.errors.length, 0);
   assert.equal(after.errors.length, 0);
 
@@ -23,8 +25,43 @@ test('diffTelex compares complete portable streams and keeps identity outside pa
 
   assert.equal(binding?.kind, 'changed');
   assert.deepEqual(binding?.kind === 'changed' ? binding.delta.parts : [], ['identity', 'value']);
-  assert.equal(diff.changes.some((change) => change.path === '$.node[0]'), false);
-  assert.equal(diff.summary.unchanged, 3);
+  assert.deepEqual(diff.changes.map((change) => change.path), ['$.a']);
+  assert.equal(diff.summary.unchanged, 2);
+});
+
+test('portable node tags remain value changes when metadata is excluded', () => {
+  const telex = (source: string) => {
+    const compiled = compile(source);
+    assert.deepEqual(compiled.errors, []);
+    return exportTelex(compiled.events);
+  };
+  const before = telex('<rows(<item("first")>, <item("second")>)>');
+  const after = telex('<rows(<item("first")>, <entry("second")>)>');
+  const diff = diffTelex(before, after, { includeMetadata: false });
+  assert.equal(diff.summary.unchanged, 4);
+  assert.deepEqual(diff.changes.map((change) => [change.path, change.kind]), [['$.rows[1]', 'changed']]);
+  const [change] = diff.changes;
+  assert.deepEqual(change?.kind === 'changed' ? change.delta.parts : [], ['value']);
+
+  const parsed = parseAesTelex(before);
+  const applied = applyAesPatch(parsed.records, createAesPatch(diff));
+  assert.equal(applied.ok, true);
+  const replay = diffTelex(encodePatchedTelex(applied.events, parsed), after);
+  assert.deepEqual(replay.changes, []);
+});
+
+test('excluding headers retains explicitly body-scoped aeon-prefixed nodes', () => {
+  const diff = diffAeon(
+    'aeon:mode="transport"\n<"aeon:mode"("before")>',
+    'aeon:mode="transport"\n<"aeon:mode"("after")>',
+    { includeHeaders: false },
+  );
+  assert.deepEqual(diff.diagnostics, []);
+  assert.ok(diff.changes.some((change) => change.path === '$.["aeon:mode"][0]'));
+  for (const change of diff.changes) {
+    assert.equal(change.kind, 'changed');
+    if (change.kind === 'changed') assert.deepEqual(change.delta.parts, ['value']);
+  }
 });
 
 test('portable datatype components are classified as datatype changes', () => {
