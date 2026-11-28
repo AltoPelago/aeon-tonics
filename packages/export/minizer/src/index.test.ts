@@ -4,6 +4,15 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { minimize } from './index.js';
 
+test('minimize deduplicates detached attributes with equivalent number values', () => {
+  const [binding] = compile('<n@{amount:number=1_000}>').events;
+  const [projection] = compile('<n@{amount:number=1000}>').events;
+  assert.ok(binding && projection?.annotations);
+  const replay = compile(minimize([{...binding, annotations: projection.annotations}]).text);
+  assert.deepEqual(replay.errors, []);
+  assert.deepEqual(projectPortableEvents(replay.events), projectPortableEvents([binding]));
+});
+
 test('minimize renders native binding attributes on the intrinsic node', () => {
   const [event] = compile('<section@{own="own"}>').events;
   const [label] = compile('label="label"').events;

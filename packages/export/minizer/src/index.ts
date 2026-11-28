@@ -171,15 +171,54 @@ function renderNodeAttributes(
   return renderAnnotations(additional);
 }
 
-function sameAnnotation(left: AttributeEntry, right: AttributeEntry): boolean {
-  if (left.value !== right.value && renderValue(left.value) !== renderValue(right.value)) return false;
+type ComparedAstPairs = WeakMap<object, WeakSet<object>>;
+
+function sameAnnotation(
+  left: AttributeEntry,
+  right: AttributeEntry,
+  compared: ComparedAstPairs = new WeakMap(),
+): boolean {
   if ((left.structuralId ?? null) !== (right.structuralId ?? null)
-    || left.datatype !== right.datatype || (left.annotations?.size ?? 0) !== (right.annotations?.size ?? 0)) return false;
+    || left.datatype !== right.datatype || (left.annotations?.size ?? 0) !== (right.annotations?.size ?? 0)
+    || !sameAstData(left.value, right.value, compared)) return false;
   for (const [key, child] of left.annotations ?? []) {
     const counterpart = right.annotations?.get(key);
-    if (!counterpart || !sameAnnotation(child, counterpart)) return false;
+    if (!counterpart || !sameAnnotation(child, counterpart, compared)) return false;
   }
   return true;
+}
+
+function sameAstData(left: unknown, right: unknown, compared: ComparedAstPairs): boolean {
+  if (left === right) return true;
+  if (typeof left !== 'object' || !left || typeof right !== 'object' || !right) return false;
+  const counterparts = compared.get(left) ?? new WeakSet<object>();
+  if (counterparts.has(right)) return true;
+
+  if (left instanceof Map || right instanceof Map) {
+    if (!(left instanceof Map && right instanceof Map) || left.size !== right.size) return false;
+    const rightKeys = right.keys();
+    for (const [key, value] of left) {
+      if (rightKeys.next().value !== key || !sameAstData(value, right.get(key), compared)) return false;
+    }
+  } else {
+    if (Array.isArray(left) !== Array.isArray(right)) return false;
+    const leftFields = comparableAstFields(left);
+    const rightFields = comparableAstFields(right);
+    if (leftFields.length !== rightFields.length) return false;
+    const rightRecord = right as Record<string, unknown>;
+    for (const [key, value] of leftFields) {
+      if (!Object.hasOwn(rightRecord, key) || !sameAstData(value, rightRecord[key], compared)) return false;
+    }
+  }
+  // Raw AST attributes and their mapped mirrors can share the same subtrees.
+  counterparts.add(right);
+  compared.set(left, counterparts);
+  return true;
+}
+
+function comparableAstFields(value: object): readonly (readonly [string, unknown])[] {
+  return Object.entries(value).filter(([key]) => key !== 'span' && key !== 'headSpan'
+    && key !== 'raw' && key !== 'rawValue' && key !== 'delimiter');
 }
 
 function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
