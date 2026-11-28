@@ -18,7 +18,7 @@ This starter package keeps the runtime model intentionally simple:
 - it treats the document as a collection of top-level bindings
 - it exposes binding-centric CRUD methods instead of a proxy document model
 - it allows easy creation from plain JS values
-- it preserves AES as the export boundary
+- it exports native AES with the payload and header descendants still attached to their original paths
 
 That makes it a good template for custom tonics that want to own a small domain API without taking
 on all of Titonic's live structural behavior.
@@ -41,16 +41,26 @@ import {
 
 const doc = createStarterTonicFromAeon(`
 aeon:mode = "strict"
-title = "Hello"
+title:string = "Hello"
+<panel("guide")>
 count:number = 2
 `);
 
-doc.set('published', true);
-doc.set('tags', ['guide', 'starter']);
+doc.set('published', true, { datatype: 'boolean' });
+doc.set('tags', ['guide', 'starter'], { datatype: 'list' });
 doc.delete('count');
 
 const text = exportStarterTonicAeon(doc).text;
 ```
+
+An intrinsic node uses its tag as the binding key. Use
+`doc.getValue('panel')` to obtain the parsed value, or `doc.get('panel')`
+to inspect its structural identity, datatype, and attributes. To insert or
+replace a parsed node, pass its tag and value to `doc.setParsed()`.
+A replacement stays in the same document position so later references can
+continue to address its children. Untouched native events retain their
+existing source locations. Provide source-plane metadata when importing events
+whose literal body keys start with AEON's header prefix.
 
 ## Why This Exists Beside Titonic
 

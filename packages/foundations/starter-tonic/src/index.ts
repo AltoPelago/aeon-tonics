@@ -1,11 +1,8 @@
-import type { AssignmentEvent, AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { buildAnnotations, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { formatDatatypeAnnotation } from '../../../../../aeon/implementations/typescript/packages/aes/dist/datatype.js';
+import { formatReferenceTargetPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/reference-target.js';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import type {
-  Attribute,
-  ReferencePathSegment,
-  TypeAnnotation,
-  Value,
-} from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
+import type { Value } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import { minimize, type MinimizeOptions, type MinimizeResult } from '../../../export/minizer/dist/index.js';
 
 export interface StarterTonicBinding {
@@ -44,18 +41,24 @@ export interface StarterSetOptions {
   readonly annotations?: ReadonlyMap<string, AttributeEntry>;
 }
 
+interface BindingEvents {
+  readonly head: AssignmentEvent;
+  readonly descendants: AssignmentEvent[];
+}
+
+const start = { line: 1, column: 1, offset: 0 } as const;
+const initialSpan = { start, end: start } as const;
+
 export class StarterTonicDocument {
   readonly #headerEvents: readonly AssignmentEvent[];
-  readonly #bindings = new Map<string, AssignmentEvent>();
+  readonly #bindings: Map<string, BindingEvents>;
 
   constructor(
     headerEvents: readonly AssignmentEvent[] = [],
     bindingEvents: readonly AssignmentEvent[] = [],
   ) {
     this.#headerEvents = [...headerEvents];
-    for (const event of bindingEvents) {
-      this.#bindings.set(event.key, event);
-    }
+    this.#bindings = groupBindings(bindingEvents.map((event) => withPlane(event, 'body')));
   }
 
   keys(): readonly string[] {
@@ -63,7 +66,7 @@ export class StarterTonicDocument {
   }
 
   entries(): readonly StarterTonicBinding[] {
-    return [...this.#bindings.values()].map(toBindingView);
+    return [...this.#bindings.values()].map(({ head }) => toBindingView(head));
   }
 
   has(key: string): boolean {
@@ -71,29 +74,47 @@ export class StarterTonicDocument {
   }
 
   get(key: string): StarterTonicBinding | undefined {
-    const event = this.#bindings.get(key);
-    return event ? toBindingView(event) : undefined;
+    const head = this.#bindings.get(key)?.head;
+    return head ? toBindingView(head) : undefined;
   }
 
   getValue(key: string): Value | undefined {
-    return this.#bindings.get(key)?.value;
+    return this.#bindings.get(key)?.head.value;
   }
 
   snapshot(): Readonly<Record<string, StarterSnapshotValue>> {
-    const entries = [...this.#bindings.values()].map((event) => [event.key, materializeValue(event.value)] as const);
+    const entries = [...this.#bindings].map(([key, { head }]) => [key, materializeValue(head.value)] as const);
     return Object.freeze(Object.fromEntries(entries));
   }
 
   set(key: string, value: unknown, options: StarterSetOptions = {}): void {
-    const rendered = renderUnknownValue(value);
-    this.#bindings.set(key, compileBindingSource(this.exportAes(), key, rendered, options));
+    this.setParsed(key, valueFromJs(value), options);
   }
 
   setParsed(key: string, value: Value, options: StarterSetOptions = {}): void {
-    this.#bindings.set(
+    const next = new Map([...this.#bindings].map(([name, { head }]) => [name, head]));
+    next.set(key, {
       key,
-      compileBindingSource(this.exportAes(), key, renderParsedValue(value), options),
-    );
+      path: { segments: [{ type: 'root' }, { type: 'member', key }] },
+      sourcePlane: 'body',
+      value,
+      span: value.span,
+      ...(options.structuralId !== undefined ? { structuralId: options.structuralId } : {}),
+      ...(options.datatype !== undefined ? { datatype: options.datatype } : {}),
+      ...(options.annotations !== undefined ? { annotations: options.annotations } : {}),
+    });
+    const source = renderDocument(this.#headerEvents, [...next.values()]).text;
+    const result = compile(source, { datatypePolicy: 'allow_custom' });
+    if (result.errors.length > 0) {
+      throw new Error(
+        `Starter tonic could not compile binding ${JSON.stringify(key)}.\n${describeErrors(result.errors)}`,
+      );
+    }
+    const replacement = groupBindings(result.events, key).get(key);
+    if (!replacement) {
+      throw new Error(`Starter tonic could not compile binding ${JSON.stringify(key)}.`);
+    }
+    this.#bindings.set(key, replacement);
   }
 
   delete(key: string): boolean {
@@ -101,7 +122,12 @@ export class StarterTonicDocument {
   }
 
   exportAes(): readonly AssignmentEvent[] {
-    return [...this.#headerEvents, ...this.#bindings.values()];
+    const events = [...this.#headerEvents];
+    for (const { head, descendants } of this.#bindings.values()) {
+      events.push(head);
+      for (const event of descendants) events.push(event);
+    }
+    return events;
   }
 }
 
@@ -112,9 +138,7 @@ export function createStarterTonicFromAeon(input: string): StarterTonicDocument 
 
   if (compileResult.errors.length > 0) {
     throw new Error(
-      `Starter tonic compile failed with ${compileResult.errors.length} error(s):\n${compileResult.errors
-        .map((error) => `${error.code}: ${error.message ?? error.name}`)
-        .join('\n')}`,
+      `Starter tonic compile failed with ${compileResult.errors.length} error(s):\n${describeErrors(compileResult.errors)}`,
     );
   }
 
@@ -122,11 +146,8 @@ export function createStarterTonicFromAeon(input: string): StarterTonicDocument 
 }
 
 export function createStarterTonicFromAes(aes: readonly AssignmentEvent[]): StarterTonicDocument {
-  const topLevel = aes.filter(isTopLevelBindingEvent);
-  return new StarterTonicDocument(
-    topLevel.filter(isHeaderEvent),
-    topLevel.filter((event) => !isHeaderEvent(event)),
-  );
+  const { header, body } = partitionEvents(aes);
+  return new StarterTonicDocument(header, body);
 }
 
 export function exportStarterTonicAes(document: StarterTonicDocument): readonly AssignmentEvent[] {
@@ -137,57 +158,95 @@ export function exportStarterTonicAeon(
   document: StarterTonicDocument,
   options: MinimizeOptions = {},
 ): MinimizeResult {
-  return minimize(document.exportAes(), options);
+  const { header, body } = partitionEvents(document.exportAes());
+  return renderDocument(header, body, options);
+}
+
+function renderDocument(
+  header: readonly AssignmentEvent[],
+  body: readonly AssignmentEvent[],
+  options: MinimizeOptions = {},
+): MinimizeResult {
+  const fields = header.filter((event) => event.path.segments.length === 2);
+  if (fields.every((event) =>
+    /^aeon:[A-Za-z_][A-Za-z0-9_]*$/u.test(event.key) && event.key !== 'aeon:header'
+    && !event.structuralId && !event.datatype && !event.annotations?.size
+  )) {
+    return minimize([...fields, ...body], options);
+  }
+
+  const bindings = fields.map((event): AssignmentEvent => {
+    const key = event.key.replace(/^aeon:/u, '');
+    return { ...event, key, sourcePlane: 'body', path: { segments: [{ type: 'root' }, { type: 'member', key }] } };
+  });
+  const headerText = `aeon:header={${minimize(bindings).text}}`;
+  const bodyText = minimize(body).text;
+  const text = bodyText ? `${headerText}\n${bodyText}` : headerText;
+  return { text: options.trailingNewline ? `${text}\n` : text };
 }
 
 function toBindingView(event: AssignmentEvent): StarterTonicBinding {
+  const { value } = event;
+  const node = value.type === 'NodeLiteral' ? value : undefined;
+  const structuralId = node?.structuralId ?? event.structuralId;
+  const datatype = node?.datatype ? formatDatatypeAnnotation(node.datatype) : event.datatype;
+  const annotations = event.annotations ?? (node?.attributes.length ? buildAnnotations(node.attributes) : undefined);
   return {
     key: event.key,
-    ...(event.structuralId !== undefined ? { structuralId: event.structuralId } : {}),
-    value: event.value,
-    ...(event.datatype ? { datatype: event.datatype } : {}),
-    ...(event.annotations ? { annotations: event.annotations } : {}),
+    value,
+    ...(structuralId !== undefined ? { structuralId } : {}),
+    ...(datatype ? { datatype } : {}),
+    ...(annotations ? { annotations } : {}),
   };
 }
 
-function isTopLevelBindingEvent(event: AssignmentEvent): boolean {
-  const segments = event.path.segments;
-  const head = segments[0];
-  const tail = segments[1];
-  return segments.length === 2 && head?.type === 'root' && tail?.type === 'member';
-}
-
-function isHeaderEvent(event: AssignmentEvent): boolean {
-  return event.key.startsWith('aeon:');
-}
-
-function compileBindingSource(
-  existingEvents: readonly AssignmentEvent[],
-  key: string,
-  renderedValue: string,
-  options: StarterSetOptions,
-): AssignmentEvent {
-  const source = `${formatBindingKey(key)}${renderStructuralId(options.structuralId)}${renderAnnotations(options.annotations)}${renderDatatype(options.datatype)}=${renderedValue}`;
-  const existing = minimize(existingEvents).text;
-  const compileInput = existing.length > 0 ? `${existing}\n${source}` : source;
-  const compileResult = compile(compileInput, {
-    datatypePolicy: 'allow_custom',
-  });
-
-  const topLevel = compileResult.events.filter(isTopLevelBindingEvent);
-  const candidate = [...topLevel]
-    .reverse()
-    .find((event) => !isHeaderEvent(event) && event.key === key);
-
-  if (compileResult.errors.length > 0 || !candidate) {
-    throw new Error(
-      `Starter tonic could not compile binding ${JSON.stringify(key)}.\n${compileResult.errors
-        .map((error) => `${error.code}: ${error.message ?? error.name}`)
-        .join('\n')}`,
-    );
+function groupBindings(events: readonly AssignmentEvent[], targetKey?: string): Map<string, BindingEvents> {
+  const groups = new Map<string, BindingEvents>();
+  for (const event of events) {
+    const [root, member] = event.path.segments;
+    if (root?.type !== 'root' || member?.type !== 'member' || event.sourcePlane === 'header') continue;
+    if (targetKey !== undefined && member.key !== targetKey) continue;
+    if (event.path.segments.length === 2) {
+      groups.set(member.key, { head: event, descendants: [] });
+    } else {
+      groups.get(member.key)?.descendants.push(event);
+    }
   }
+  return groups;
+}
 
-  return candidate;
+function partitionEvents(events: readonly AssignmentEvent[]): { header: AssignmentEvent[]; body: AssignmentEvent[] } {
+  const header: AssignmentEvent[] = [];
+  const body: AssignmentEvent[] = [];
+  let rootKey: string | undefined;
+  let rootPlane: 'header' | 'body' = 'body';
+  for (const event of events) {
+    const member = event.path.segments[1];
+    const key = member?.type === 'member' ? member.key : undefined;
+    const topLevel = event.path.segments.length === 2;
+    const inferredPlane = key?.startsWith('aeon:') && (!topLevel || event.value.type !== 'NodeLiteral')
+      ? 'header' : 'body';
+    const plane: 'header' | 'body' = event.sourcePlane ?? (!topLevel && key === rootKey ? rootPlane : inferredPlane);
+    if (topLevel) {
+      rootKey = key;
+      rootPlane = plane;
+    }
+    if (plane === 'header') {
+      // Prefix-based grouping retains the original plane metadata.
+      header.push(event);
+    } else {
+      body.push(withPlane(event, 'body'));
+    }
+  }
+  return { header, body };
+}
+
+function withPlane(event: AssignmentEvent, sourcePlane: 'header' | 'body'): AssignmentEvent {
+  return event.sourcePlane === undefined ? { ...event, sourcePlane } : event;
+}
+
+function describeErrors(errors: ReturnType<typeof compile>['errors']): string {
+  return errors.map((error) => `${error.code}: ${error.message ?? error.name}`).join('\n');
 }
 
 function materializeValue(value: Value): StarterSnapshotValue {
@@ -235,12 +294,12 @@ function materializeValue(value: Value): StarterSnapshotValue {
     case 'CloneReference':
       return Object.freeze({
         kind: 'clone',
-        path: formatReferencePath(value.path),
+        path: formatReferenceTargetPath(value.path).replace(/^\$\.?/u, ''),
       });
     case 'PointerReference':
       return Object.freeze({
         kind: 'pointer',
-        path: formatReferencePath(value.path),
+        path: formatReferenceTargetPath(value.path).replace(/^\$\.?/u, ''),
       });
     default: {
       const exhaustive: never = value;
@@ -249,210 +308,38 @@ function materializeValue(value: Value): StarterSnapshotValue {
   }
 }
 
-function renderUnknownValue(value: unknown): string {
+function valueFromJs(value: unknown): Value {
+  const span = initialSpan;
   if (value === null) {
-    return 'null';
+    return { type: 'NullLiteral', mode: 'reserved', value: 'none', raw: '!none', span };
   }
   if (typeof value === 'string') {
-    return formatString(value);
+    return { type: 'StringLiteral', value, raw: value, delimiter: '"', span };
   }
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
       throw new TypeError('Starter tonic set() only accepts finite JavaScript numbers. Use setParsed() for AEON infinity or NaN literals.');
     }
-    return `${value}`;
+    const raw = String(value);
+    return { type: 'NumberLiteral', value: raw, raw, span };
   }
   if (typeof value === 'boolean') {
-    return value ? 'true' : 'false';
+    return { type: 'BooleanLiteral', value, raw: String(value), span };
   }
   if (Array.isArray(value)) {
-    return `[${value.map((entry) => renderUnknownValue(entry)).join(', ')}]`;
+    return { type: 'ListNode', attributes: [], elements: value.map(valueFromJs), span };
   }
-  if (isPlainObject(value)) {
-    return `{${Object.entries(value).map(([key, entry]) => `${formatBindingKey(key)}=${renderUnknownValue(entry)}`).join(', ')}}`;
+  if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const bindings = Object.entries(value).map(([key, entry]) => ({
+      type: 'Binding' as const,
+      key,
+      structuralId: null,
+      datatype: null,
+      attributes: [],
+      value: valueFromJs(entry),
+      span,
+    }));
+    return { type: 'ObjectNode', attributes: [], bindings, span };
   }
   throw new TypeError('Starter tonic set() accepts only plain JS values. Use setParsed() for raw AEON values such as references or node literals.');
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype;
-}
-
-function renderParsedValue(value: Value): string {
-  switch (value.type) {
-    case 'TypedValue':
-      return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${formatTypeAnnotation(value.datatype)}=${renderParsedValue(value.value)}`;
-    case 'StringLiteral':
-      return formatString(value.value);
-    case 'NumberLiteral':
-    case 'InfinityLiteral':
-    case 'NaNLiteral':
-    case 'NullLiteral':
-    case 'BooleanLiteral':
-    case 'ToggleLiteral':
-    case 'HexLiteral':
-    case 'RadixLiteral':
-    case 'EncodingLiteral':
-    case 'SeparatorLiteral':
-    case 'DateLiteral':
-    case 'DateTimeLiteral':
-    case 'TimeLiteral':
-    case 'SansaAddressLiteral':
-    case 'SymbolicLiteral':
-      return value.raw;
-    case 'ObjectNode':
-      return `{${value.bindings.map((binding) => renderBinding(binding.key, binding.value, binding.structuralId, binding.datatype, binding.attributes)).join(',')}}`;
-    case 'ListNode':
-      return `[${value.elements.map((element) => renderParsedValue(element)).join(',')}]`;
-    case 'TupleLiteral':
-      return `(${value.elements.map((element) => renderParsedValue(element)).join(',')})`;
-    case 'NodeLiteral':
-      return renderNode(value);
-    case 'CloneReference':
-      return `~${formatReferencePath(value.path)}`;
-    case 'PointerReference':
-      return `~>${formatReferencePath(value.path)}`;
-    default: {
-      const exhaustive: never = value;
-      return exhaustive;
-    }
-  }
-}
-
-function renderBinding(
-  key: string,
-  value: Value,
-  structuralId: string | null,
-  datatype: TypeAnnotation | null,
-  attributes: readonly Attribute[],
-): string {
-  return `${formatBindingKey(key)}${renderStructuralId(structuralId)}${renderAttributes(attributes)}${formatTypeAnnotation(datatype)}=${renderParsedValue(value)}`;
-}
-
-function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>): string {
-  const attrs = renderAttributes(value.attributes);
-  const datatype = formatTypeAnnotation(value.datatype);
-  const children = value.children.length > 0
-    ? `(${value.children.map((child) => renderParsedValue(child)).join(',')})`
-    : '';
-  return `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${attrs}${datatype}${children}>`;
-}
-
-function renderAnnotations(annotations: ReadonlyMap<string, AttributeEntry> | undefined): string {
-  if (!annotations || annotations.size === 0) {
-    return '';
-  }
-
-  const entries = [...annotations.entries()]
-    .map(([key, entry]) => renderAttributeEntry(key, entry))
-    .join(',');
-  return `@{${entries}}`;
-}
-
-function renderAttributes(attributes: readonly Attribute[]): string {
-  if (attributes.length === 0) {
-    return '';
-  }
-  return attributes
-    .map((attribute) => {
-      const entries = [...attribute.entries.entries()]
-        .map(([key, entry]) => {
-          const nested = renderAttributes(entry.attributes);
-          return `${formatBindingKey(key)}${renderStructuralId(entry.structuralId)}${nested}${formatTypeAnnotation(entry.datatype)}=${renderParsedValue(entry.value)}`;
-        })
-        .join(',');
-      return `@{${entries}}`;
-    })
-    .join('');
-}
-
-function renderAttributeEntry(key: string, entry: AttributeEntry): string {
-  return `${formatBindingKey(key)}${renderStructuralId(entry.structuralId)}${renderAnnotations(entry.annotations)}${renderDatatype(entry.datatype)}=${renderParsedValue(entry.value)}`;
-}
-
-function renderStructuralId(structuralId: string | null | undefined): string {
-  return structuralId ? `\\${structuralId}\\` : '';
-}
-
-function renderDatatype(datatype: string | undefined): string {
-  return datatype ? `:${datatype}` : '';
-}
-
-function formatTypeAnnotation(datatype: TypeAnnotation | null): string {
-  if (!datatype) {
-    return '';
-  }
-  const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
-  const clarifiers = datatype.clarifiers.length > 0
-    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
-    : '';
-  return `:${datatype.name}${generics}${clarifiers}`;
-}
-
-function formatBindingKey(key: string): string {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
-}
-
-function formatString(value: string): string {
-  let out = '';
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i]!;
-    switch (ch) {
-      case '"':
-        out += '\\"';
-        break;
-      case '\\':
-        out += '\\\\';
-        break;
-      case '\n':
-        out += '\\n';
-        break;
-      case '\r':
-        out += '\\r';
-        break;
-      case '\t':
-        out += '\\t';
-        break;
-      default: {
-        const code = ch.charCodeAt(0);
-        out += code < 0x20 ? `\\u${code.toString(16).padStart(4, '0')}` : ch;
-        break;
-      }
-    }
-  }
-  return `"${out}"`;
-}
-
-function formatReferencePath(path: readonly ReferencePathSegment[]): string {
-  if (path.length === 0) {
-    return '';
-  }
-
-  let result = '';
-  for (let i = 0; i < path.length; i++) {
-    const segment = path[i]!;
-    if (typeof segment === 'number') {
-      result += `[${segment}]`;
-      continue;
-    }
-    if (typeof segment === 'object' && segment.type === 'attr') {
-      result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
-        ? `.@.${segment.key}`
-        : `.@.["${escapeQuotedPathSegment(segment.key)}"]`;
-      continue;
-    }
-
-    if (i > 0) {
-      result += '.';
-    }
-    const member = segment as string;
-    result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(member)
-      ? member
-      : `["${escapeQuotedPathSegment(member)}"]`;
-  }
-  return result;
-}
-
-function escapeQuotedPathSegment(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
