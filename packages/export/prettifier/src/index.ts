@@ -1,11 +1,18 @@
-import type { AssignmentEvent, AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { buildAnnotations, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import type {
-  Attribute,
-  ReferencePathSegment,
-  TypeAnnotation,
-  Value,
+import {
+  formatClarifierValue,
+  type Attribute,
+  type ReferencePathSegment,
+  type TypeAnnotation,
+  type Value,
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
+
+interface NodeHead {
+  readonly structuralId?: string | null | undefined;
+  readonly datatype?: string | undefined;
+  readonly annotations?: ReadonlyMap<string, AttributeEntry> | undefined;
+}
 
 export interface PrettifyOptions {
   readonly indent?: string;
@@ -58,20 +65,29 @@ function isTopLevelBinding(event: AssignmentEvent): boolean {
 
 function renderTopLevelBinding(event: AssignmentEvent, context: RenderContext): string {
   const segment = event.path.segments[1] as RootMemberSegment;
+  if (event.value.type === 'NodeLiteral') return renderNode(event.value, context, 0, segment.key, {
+    structuralId: event.structuralId,
+    datatype: renderEventDatatype(event.datatype),
+    annotations: event.annotations,
+  });
   const aeonShortcutHeader = event.sourcePlane === undefined
     ? segment.key.startsWith('aeon:') : event.sourcePlane === 'header';
-  const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key);
   const structuralId = aeonShortcutHeader ? '' : renderStructuralIdentity(event.structuralId);
   const datatype = aeonShortcutHeader ? '' : renderEventDatatype(event.datatype);
+  const key = aeonShortcutHeader ? segment.key : formatBindingKey(segment.key, datatype);
   return `${key}${structuralId}${renderAnnotations(event.annotations, context, 0)}${datatype} = ${renderValue(event.value, context, 0)}`;
 }
 
 function renderValue(value: Value, context: RenderContext, depth: number): string {
   switch (value.type) {
     case 'TypedValue':
+      if (value.value.type === 'NodeLiteral') {
+        const head = parserNodeHead(value.structuralId, value.datatype, value.attributes);
+        return renderNode(value.value, context, depth, value.value.tag, head);
+      }
       return `${renderStructuralIdentity(value.structuralId)}${renderAttributes(value.attributes, context, depth)}${formatDatatype(value.datatype)} = ${renderValue(value.value, context, depth)}`;
     case 'StringLiteral':
-      return formatString(value.value);
+      return value.trimticks ? '>' + formatString(value.trimticks.rawValue, '`') : formatString(value.value);
     case 'NumberLiteral':
     case 'InfinityLiteral':
     case 'NaNLiteral':
@@ -143,23 +159,117 @@ function renderBinding(
   context: RenderContext,
   depth: number,
 ): string {
-  return `${formatBindingKey(key)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes, context, depth)}${formatDatatype(datatype)} = ${renderValue(value, context, depth)}`;
+  if (value.type === 'NodeLiteral') return renderNode(value, context, depth, key, parserNodeHead(structuralId, datatype, attributes));
+  const type = formatDatatype(datatype);
+  return `${formatBindingKey(key, type)}${renderStructuralIdentity(structuralId)}${renderAttributes(attributes, context, depth)}${type} = ${renderValue(value, context, depth)}`;
 }
 
-function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number): string {
-  const structuralId = renderStructuralIdentity(value.structuralId);
-  const attrs = renderAttributes(value.attributes, context, depth);
-  const datatype = formatDatatype(value.datatype);
+function renderNode(value: Extract<Value, { type: 'NodeLiteral' }>, context: RenderContext, depth: number, key = value.tag, head?: NodeHead): string {
+  if (key !== value.tag) {
+    throw new Error(`Node tag ${JSON.stringify(value.tag)} must match its key ${JSON.stringify(key)}.`);
+  }
+  const nodeDatatype = formatDatatype(value.datatype);
+  if (value.structuralId != null && head?.structuralId != null && value.structuralId !== head.structuralId) {
+    throw new Error('Conflicting structural identities on an intrinsic node.');
+  }
+  if (nodeDatatype && head?.datatype && nodeDatatype !== head.datatype) {
+    throw new Error('Conflicting datatypes on an intrinsic node.');
+  }
+  const structuralId = renderStructuralIdentity(value.structuralId ?? head?.structuralId);
+  const datatype = nodeDatatype || head?.datatype || '';
+  const attrs = renderNodeAttributes(value.attributes, head?.annotations, context, depth);
   if (value.children.length === 0) {
-    return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}>`;
+    return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}>`;
   }
   if (value.children.every(isInlineValue)) {
-    return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}(${value.children.map((child) => renderValue(child, context, depth)).join(', ')})>`;
+    return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}(${value.children.map((child) => renderValue(child, context, depth)).join(', ')})>`;
   }
   const children = value.children
     .map((child) => `${indent(context, depth + 1)}${renderValue(child, context, depth + 1)}`)
     .join(',\n');
-  return `<${formatBindingKey(value.tag)}${structuralId}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
+  return `<${formatBindingKey(value.tag, datatype)}${structuralId}${attrs}${datatype}(\n${children}\n${indent(context, depth)})>`;
+}
+
+function parserNodeHead(
+  structuralId: string | null,
+  datatype: TypeAnnotation | null,
+  attributes: readonly Attribute[],
+): NodeHead | undefined {
+  if (!structuralId && !datatype && attributes.length === 0) return undefined;
+  return { structuralId, datatype: formatDatatype(datatype), annotations: buildAnnotations(attributes) };
+}
+
+function renderNodeAttributes(
+  attributes: readonly Attribute[],
+  annotations: ReadonlyMap<string, AttributeEntry> | undefined, context: RenderContext, depth: number,
+): string {
+  if (!annotations?.size) return renderAttributes(attributes, context, depth);
+  if (attributes.length === 0) return renderAnnotations(annotations, context, depth);
+
+  // Native event maps can repeat intrinsic attributes or supply binding attributes.
+  const intrinsic = buildAnnotations(attributes);
+  const additional = new Map<string, AttributeEntry>();
+  for (const [key, entry] of annotations) {
+    const existing = intrinsic.get(key);
+    if (!existing) {
+      additional.set(key, entry);
+    } else if (!sameAnnotation(existing, entry)) {
+      throw new Error(`Conflicting attribute ${JSON.stringify(key)} on an intrinsic node.`);
+    }
+  }
+  if (additional.size === 0) return renderAttributes(attributes, context, depth);
+  for (const [key, entry] of intrinsic) additional.set(key, entry);
+  return renderAnnotations(additional, context, depth);
+}
+
+type ComparedAstPairs = WeakMap<object, WeakSet<object>>;
+
+function sameAnnotation(
+  left: AttributeEntry,
+  right: AttributeEntry,
+  compared: ComparedAstPairs = new WeakMap(),
+): boolean {
+  if ((left.structuralId ?? null) !== (right.structuralId ?? null)
+    || left.datatype !== right.datatype || (left.annotations?.size ?? 0) !== (right.annotations?.size ?? 0)
+    || !sameAstData(left.value, right.value, compared)) return false;
+  for (const [key, child] of left.annotations ?? []) {
+    const counterpart = right.annotations?.get(key);
+    if (!counterpart || !sameAnnotation(child, counterpart, compared)) return false;
+  }
+  return true;
+}
+
+function sameAstData(left: unknown, right: unknown, compared: ComparedAstPairs): boolean {
+  if (left === right) return true;
+  if (typeof left !== 'object' || !left || typeof right !== 'object' || !right) return false;
+  const counterparts = compared.get(left) ?? new WeakSet<object>();
+  if (counterparts.has(right)) return true;
+
+  if (left instanceof Map || right instanceof Map) {
+    if (!(left instanceof Map && right instanceof Map) || left.size !== right.size) return false;
+    const rightKeys = right.keys();
+    for (const [key, value] of left) {
+      if (rightKeys.next().value !== key || !sameAstData(value, right.get(key), compared)) return false;
+    }
+  } else {
+    if (Array.isArray(left) !== Array.isArray(right)) return false;
+    const leftFields = comparableAstFields(left);
+    const rightFields = comparableAstFields(right);
+    if (leftFields.length !== rightFields.length) return false;
+    const rightRecord = right as Record<string, unknown>;
+    for (const [key, value] of leftFields) {
+      if (!Object.hasOwn(rightRecord, key) || !sameAstData(value, rightRecord[key], compared)) return false;
+    }
+  }
+  // Raw AST attributes and their mapped mirrors can share the same subtrees.
+  counterparts.add(right);
+  compared.set(left, counterparts);
+  return true;
+}
+
+function comparableAstFields(value: object): readonly (readonly [string, unknown])[] {
+  return Object.entries(value).filter(([key]) => key !== 'span' && key !== 'headSpan'
+    && key !== 'raw' && key !== 'rawValue' && key !== 'delimiter');
 }
 
 function renderAnnotations(
@@ -189,8 +299,10 @@ function renderAttributes(
     .map((attribute) => {
       const entries = [...attribute.entries.entries()]
         .map(([key, entry]) => {
+          if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key, parserNodeHead(entry.structuralId, entry.datatype, entry.attributes));
+          const datatype = formatDatatype(entry.datatype);
           const nested = renderAttributes(entry.attributes, context, depth);
-          return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${nested}${formatDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
+          return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${nested}${datatype} = ${renderValue(entry.value, context, depth)}`;
         })
         .join(', ');
       return `@{${entries}}`;
@@ -199,7 +311,13 @@ function renderAttributes(
 }
 
 function renderAttributeEntry(key: string, entry: AttributeEntry, context: RenderContext, depth: number): string {
-  return `${formatBindingKey(key)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations, context, depth)}${renderEventDatatype(entry.datatype)} = ${renderValue(entry.value, context, depth)}`;
+  if (entry.value.type === 'NodeLiteral') return renderNode(entry.value, context, depth, key, {
+    structuralId: entry.structuralId,
+    datatype: renderEventDatatype(entry.datatype),
+    annotations: entry.annotations,
+  });
+  const datatype = renderEventDatatype(entry.datatype);
+  return `${formatBindingKey(key, datatype)}${renderStructuralIdentity(entry.structuralId)}${renderAnnotations(entry.annotations, context, depth)}${datatype} = ${renderValue(entry.value, context, depth)}`;
 }
 
 function renderStructuralIdentity(structuralId: string | null | undefined): string {
@@ -218,22 +336,24 @@ function formatDatatype(
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
   const clarifiers = datatype.clarifiers.length > 0
-    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+    ? `[${datatype.clarifiers.map(formatClarifierValue).join(', ')}]`
     : '';
   return `:${datatype.name}${generics}${clarifiers}`;
 }
 
-function formatBindingKey(key: string): string {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
+function formatBindingKey(key: string, datatype: string): string {
+  // An adjacent aeon: is lexed as a header namespace.
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && (key !== 'aeon' || datatype === '') ? key : formatString(key);
 }
 
-function formatString(value: string): string {
+function formatString(value: string, delimiter: '"' | '`' = '"'): string {
   let out = '';
   for (let i = 0; i < value.length; i++) {
     const ch = value[i]!;
     switch (ch) {
       case '"':
-        out += '\\"';
+      case '`':
+        out += ch === delimiter ? '\\' + ch : ch;
         break;
       case '\\':
         out += '\\\\';
@@ -254,7 +374,7 @@ function formatString(value: string): string {
       }
     }
   }
-  return `"${out}"`;
+  return delimiter + out + delimiter;
 }
 
 function formatReferencePath(path: readonly ReferencePathSegment[]): string {
@@ -272,7 +392,7 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     if (typeof segment === 'object' && segment.type === 'attr') {
       result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)
         ? `.@.${segment.key}`
-        : `.@.["${escapeQuotedPathSegment(segment.key)}"]`;
+        : `.@.[${formatString(segment.key)}]`;
       continue;
     }
 
@@ -282,14 +402,11 @@ function formatReferencePath(path: readonly ReferencePathSegment[]): string {
     const member = segment as string;
     result += /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(member)
       ? member
-      : `["${escapeQuotedPathSegment(member)}"]`;
+      : `[${formatString(member)}]`;
   }
   return result;
 }
 
-function escapeQuotedPathSegment(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
 
 function indent(context: RenderContext, depth: number): string {
   return context.indent.repeat(depth);

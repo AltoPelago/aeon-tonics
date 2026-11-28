@@ -1,15 +1,16 @@
-import { formatPath, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { formatPath, resolveEventSubpath, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { formatReferenceTargetPath } from '../../../../../aeon/implementations/typescript/packages/aes/dist/reference-target.js';
 import { compile } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
-import type {
-  Attribute,
-  AttributeValue,
-  Binding,
-  NodeLiteral,
-  ObjectNode,
-  ReferencePathSegment,
-  TypeAnnotation,
-  Value,
+import {
+  formatClarifierValue,
+  type Attribute,
+  type AttributeValue,
+  type Binding,
+  type NodeLiteral,
+  type ObjectNode,
+  type ReferencePathSegment,
+  type TypeAnnotation,
+  type Value,
 } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import { minimize } from '../../minizer/dist/index.js';
 
@@ -41,11 +42,6 @@ const RESERVED_V1_DATATYPES = new Set([
 
 interface InferenceContext {
   readonly pathToEvent: ReadonlyMap<string, AssignmentEvent>;
-}
-
-interface ReferenceResolutionContext {
-  readonly value: Value;
-  readonly annotations: ReadonlyMap<string, AttributeEntry> | undefined;
 }
 
 export function convertAeonMode(source: string, options: ConvertAeonModeOptions): ConvertAeonModeResult {
@@ -89,11 +85,13 @@ function convertEvent(
   preserve: ReadonlySet<string>,
   inference: InferenceContext,
 ): AssignmentEvent {
-  const datatype = convertDatatype(event.datatype, event.value, target, preserve, inference);
   const { datatype: _datatype, annotations: _annotations, ...base } = event;
+  const value = convertValue(event.value, target, preserve, false, inference);
+  if (value.type === 'NodeLiteral') return { ...base, value };
+  const datatype = convertDatatype(event.datatype, value, target, preserve, inference);
   return {
     ...base,
-    value: convertValue(event.value, target, preserve, false, inference),
+    value,
     ...(datatype === undefined ? {} : { datatype }),
     ...(event.annotations ? { annotations: convertAnnotationMap(event.annotations, target, preserve, inference) } : {}),
   };
@@ -171,7 +169,7 @@ function convertElementValue(
   inference: InferenceContext,
 ): Value {
   const converted = convertValue(value, target, preserve, true, inference);
-  return target !== 'transport' && converted.type !== 'TypedValue'
+  return target !== 'transport' && converted.type !== 'TypedValue' && converted.type !== 'NodeLiteral'
     ? createTypedValue(inferDatatype(converted, inference), converted)
     : converted;
 }
@@ -213,6 +211,7 @@ function convertBinding(
   inference: InferenceContext,
 ): Binding {
   const convertedValue = convertValue(binding.value, target, preserve, false, inference);
+  if (convertedValue.type === 'NodeLiteral') return { ...binding, value: convertedValue };
   const currentDatatype = formatDatatype(binding.datatype);
   const nextDatatype = convertTypeAnnotation(binding.datatype, convertedValue, target, preserve, inference);
   return {
@@ -247,6 +246,7 @@ function convertAttributeValue(
   inference: InferenceContext,
 ): AttributeValue {
   const value = convertValue(entry.value, target, preserve, false, inference);
+  if (value.type === 'NodeLiteral') return { ...entry, value };
   const datatype = convertTypeAnnotation(entry.datatype, value, target, preserve, inference);
   return {
     ...entry,
@@ -264,6 +264,7 @@ function convertAnnotationMap(
 ): ReadonlyMap<string, AttributeEntry> {
   return new Map([...annotations.entries()].map(([key, entry]) => {
     const value = convertValue(entry.value, target, preserve, false, inference);
+    if (value.type === 'NodeLiteral') return [key, { value }];
     const datatype = convertDatatype(entry.datatype, value, target, preserve, inference);
     const next: AttributeEntry = {
       ...(entry.structuralId !== undefined ? { structuralId: entry.structuralId } : {}),
@@ -388,112 +389,10 @@ function resolveReferenceValue(
       continue;
     }
 
-    return resolveReferenceSubpath(event.value, event.annotations, path.slice(split));
+    return resolveEventSubpath(event, path.slice(split));
   }
 
   return null;
-}
-
-function resolveReferenceSubpath(
-  value: Value,
-  annotations: ReadonlyMap<string, AttributeEntry> | undefined,
-  remainder: readonly ReferencePathSegment[],
-): Value | null {
-  let current: ReferenceResolutionContext | null = {
-    value,
-    annotations: selectAnnotations(annotations, value),
-  };
-
-  for (const segment of remainder) {
-    if (!current) {
-      return null;
-    }
-
-    if (isReferenceAttrSegment(segment)) {
-      const annotations: ReadonlyMap<string, AttributeEntry> | undefined = current.annotations;
-      const entry: AttributeEntry | undefined = annotations?.get(segment.key);
-      current = entry
-        ? {
-            value: entry.value,
-            annotations: entry.annotations ?? selectAnnotations(undefined, entry.value),
-          }
-        : null;
-      continue;
-    }
-
-    const value = unwrapTypedValue(current.value);
-    if (typeof segment === 'string') {
-      if (value.type !== 'ObjectNode') {
-        return null;
-      }
-      const binding = value.bindings.find((candidate) => candidate.key === segment);
-      current = binding
-        ? {
-            value: binding.value,
-            annotations: selectAnnotations(buildAnnotationMap(binding.attributes), binding.value),
-          }
-        : null;
-      continue;
-    }
-
-    if (value.type !== 'ListNode' && value.type !== 'TupleLiteral') {
-      return null;
-    }
-    const element = value.elements[segment];
-    current = element
-      ? {
-          value: element,
-          annotations: selectAnnotations(undefined, element),
-        }
-      : null;
-  }
-
-  return current?.value ?? null;
-}
-
-function unwrapTypedValue(value: Value): Value {
-  return value.type === 'TypedValue' ? value.value : value;
-}
-
-function selectAnnotations(
-  preferred: ReadonlyMap<string, AttributeEntry> | undefined,
-  value: Value,
-): ReadonlyMap<string, AttributeEntry> | undefined {
-  if (preferred && preferred.size > 0) {
-    return preferred;
-  }
-  if (value.type === 'TypedValue' && value.attributes.length > 0) {
-    return buildAnnotationMap(value.attributes);
-  }
-  const unwrapped = unwrapTypedValue(value);
-  if (
-    unwrapped.type === 'ObjectNode'
-    || unwrapped.type === 'ListNode'
-    || unwrapped.type === 'TupleLiteral'
-    || unwrapped.type === 'NodeLiteral'
-  ) {
-    return buildAnnotationMap(unwrapped.attributes);
-  }
-  return undefined;
-}
-
-function buildAnnotationMap(attributes: readonly Attribute[]): ReadonlyMap<string, AttributeEntry> | undefined {
-  if (attributes.length === 0) {
-    return undefined;
-  }
-
-  const entries = new Map<string, AttributeEntry>();
-  for (const attribute of attributes) {
-    for (const [key, entry] of attribute.entries) {
-      const nested = buildAnnotationMap(entry.attributes);
-      entries.set(key, {
-        value: entry.value,
-        ...(entry.datatype ? { datatype: formatDatatype(entry.datatype) } : {}),
-        ...(nested ? { annotations: nested } : {}),
-      });
-    }
-  }
-  return entries;
 }
 
 function isReferenceAttrSegment(
@@ -639,7 +538,7 @@ function formatDatatype(datatype: TypeAnnotation | null): string {
   }
   const generics = datatype.genericArgs.length > 0 ? `<${datatype.genericArgs.join(', ')}>` : '';
   const clarifiers = datatype.clarifiers.length > 0
-    ? `[${datatype.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+    ? `[${datatype.clarifiers.map(formatClarifierValue).join(', ')}]`
     : '';
   return `${datatype.name}${generics}${clarifiers}`;
 }
@@ -667,7 +566,8 @@ function createTypedValue(datatype: string, value: Value): Value {
 
 function isModeHeaderEvent(event: AssignmentEvent): boolean {
   const segment = event.path.segments[1];
-  return event.path.segments.length === 2 && segment?.type === 'member' && segment.key === 'aeon:mode';
+  return event.sourcePlane !== 'body' && event.path.segments.length === 2 &&
+    segment?.type === 'member' && segment.key === 'aeon:mode';
 }
 
 function createModeHeaderEvent(target: AeonModeConversionTarget, source: AssignmentEvent | undefined): AssignmentEvent {
@@ -678,6 +578,7 @@ function createModeHeaderEvent(target: AeonModeConversionTarget, source: Assignm
   return {
     path: { segments: [{ type: 'root' }, { type: 'member', key: 'aeon:mode' }] },
     key: 'mode',
+    sourcePlane: 'header',
     span,
     value: {
       type: 'StringLiteral',

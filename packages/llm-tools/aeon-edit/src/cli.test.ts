@@ -74,7 +74,7 @@ test('CLI prettifies minimized AEON to stdout without changing source order', as
 
   assert.equal(result.stdout, [
     'z:number = 1',
-    'aeon:mode = "strict"',
+    '"aeon":mode = "strict"',
     'app:object = {',
     '  name:string = "Aeon"',
     '  count:number = 1',

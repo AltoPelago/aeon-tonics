@@ -1,6 +1,7 @@
-import { formatPath, type AssignmentEvent } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { formatPath, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { compile, type AnnotationRecord } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import { tokenize, TokenType, type Token } from '../../../../../aeon/implementations/typescript/packages/lexer/dist/index.js';
+import type { Attribute, Value } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import { minimize } from '../../minizer/dist/index.js';
 
 export type CompactCommentMode = 'semantic' | 'all' | 'none';
@@ -39,7 +40,7 @@ export function compactAeon(source: string, options: CompactOptions = {}): Compa
     const first = compiled.errors[0]!;
     throw new Error(first.message);
   }
-  return compactWithAnnotations(compiled.events, source, compiled.annotations ?? [], options);
+  return compactSource(compiled.events, source, compiled.events, compiled.annotations ?? [], options);
 }
 
 export function compact(
@@ -48,8 +49,90 @@ export function compact(
   options: CompactOptions = {},
 ): CompactResult {
   const compiled = options.comments === 'none' ? undefined : compile(source);
-  const annotations = compiled && compiled.errors.length === 0 ? compiled.annotations ?? [] : [];
-  return compactWithAnnotations(aes, source, annotations, options);
+  if (!compiled || compiled.errors.length > 0) {
+    return compactWithAnnotations(aes, source, [], options);
+  }
+  return compactSource(aes, source, compiled.events, compiled.annotations ?? [], options);
+}
+
+function compactSource(
+  events: readonly AssignmentEvent[],
+  source: string,
+  sourceEvents: readonly AssignmentEvent[],
+  annotations: readonly AnnotationRecord[],
+  options: CompactOptions,
+): CompactResult {
+  const compacted = compactWithAnnotations(events, source, annotations, options);
+  if (options.comments === 'none' || annotations.length === 0 || !sourceEvents.some(hasIntrinsicNode)) {
+    return compacted;
+  }
+
+  const replay = compile(compacted.text);
+  if (replay.errors.length === 0 && annotationLayout(replay.annotations ?? []) === annotationLayout(annotations)) {
+    return compacted;
+  }
+
+  if (events !== sourceEvents && minimize(events).text !== minimize(sourceEvents).text) {
+    throw new Error('Cannot preserve intrinsic node comments when the supplied events differ from the source.');
+  }
+  // Layout contributes to annotation attachment. Keep authored token offsets when
+  // the placement algorithm cannot reconstruct the layout of an intrinsic node.
+  const preserved = options.comments === 'all' ? source : maskUnselectedComments(source);
+  // The lexer includes CR in a line comment's raw payload. Strip only LF here.
+  const text = preserved.replace(/\n+$/u, '');
+  return { text: options.trailingNewline && text.length > 0 ? `${text}\n` : text };
+}
+
+function hasIntrinsicNode(event: AssignmentEvent): boolean {
+  return isTopLevelBinding(event) && (valueHasIntrinsicNode(event.value) || annotationsHaveIntrinsicNode(event.annotations));
+}
+
+function valueHasIntrinsicNode(value: Value): boolean {
+  if (value.type === 'NodeLiteral') return true;
+  if ('attributes' in value && value.attributes.some(attributeHasIntrinsicNode)) return true;
+  switch (value.type) {
+    case 'TypedValue':
+      return valueHasIntrinsicNode(value.value);
+    case 'ObjectNode':
+      return value.bindings.some(binding => valueHasIntrinsicNode(binding.value) || binding.attributes.some(attributeHasIntrinsicNode));
+    case 'ListNode':
+    case 'TupleLiteral':
+      return value.elements.some(valueHasIntrinsicNode);
+    default:
+      return false;
+  }
+}
+
+function attributeHasIntrinsicNode(attribute: Attribute): boolean {
+  for (const entry of attribute.entries.values()) {
+    if (valueHasIntrinsicNode(entry.value) || entry.attributes.some(attributeHasIntrinsicNode)) return true;
+  }
+  return false;
+}
+
+function annotationsHaveIntrinsicNode(annotations: ReadonlyMap<string, AttributeEntry> | undefined): boolean {
+  for (const entry of annotations?.values() ?? []) {
+    if (valueHasIntrinsicNode(entry.value) || annotationsHaveIntrinsicNode(entry.annotations)) return true;
+  }
+  return false;
+}
+
+function annotationLayout(annotations: readonly AnnotationRecord[]): string {
+  return JSON.stringify(annotations.map(({raw, target, placement}) => [raw, target, placement]));
+}
+
+function maskUnselectedComments(source: string): string {
+  const chunks: string[] = [];
+  let offset = 0;
+  for (const token of tokenize(source, { includeComments: true }).tokens) {
+    if (!isCommentToken(token) || (token.comment?.channel !== 'plain' && token.comment?.channel !== 'host')) continue;
+    const { start, end } = token.span;
+    chunks.push(source.slice(offset, start.offset));
+    chunks.push(source.slice(start.offset, end.offset).replace(/[^\r\n]/g, ' '));
+    offset = end.offset;
+  }
+  chunks.push(source.slice(offset));
+  return chunks.join('');
 }
 
 function compactWithAnnotations(
@@ -60,6 +143,14 @@ function compactWithAnnotations(
 ): CompactResult {
   const topLevel = aes.filter(isTopLevelBinding);
   const comments = collectComments(source, annotations, options.comments ?? 'semantic');
+  const commentsByPath = new Map<string, { comment: PreservedComment; index: number }[]>();
+  comments.forEach((comment, index) => {
+    if (comment.targetPath === undefined || !comment.placement) return;
+    const entry = { comment, index };
+    const group = commentsByPath.get(comment.targetPath);
+    if (group) group.push(entry);
+    else commentsByPath.set(comment.targetPath, [entry]);
+  });
   const lines: string[] = [];
   let commentIndex = 0;
   const used = new Set<number>();
@@ -75,9 +166,7 @@ function compactWithAnnotations(
       commentIndex += 1;
     }
 
-    const attached = comments
-      .map((comment, index) => ({ comment, index }))
-      .filter(({ comment }) => comment.targetPath === eventPath && comment.placement);
+    const attached = commentsByPath.get(eventPath) ?? [];
     const leading = attached.filter(({ comment }) => comment.placement?.before === 'key' && !comment.placement.after);
     for (const { comment, index } of leading) {
       lines.push(renderComment(comment.raw));

@@ -503,11 +503,29 @@ test('titonic can create and replace node literals via titonicElement()', () => 
     view.datatype = 'contact';
   }, /strict-mode node heads only accept datatype "node"/);
 
+  assert.throws(
+    () => exportTitonicAeon(titonic),
+    /Node tag "section" must match its key "view"/,
+  );
+  titonic.section = titonicElement('section', view.children, { datatype: 'node' });
+  delete titonic.view;
+
   const exportedAeon = exportTitonicAeon(titonic, { trailingNewline: false });
   assert.equal(
     exportedAeon,
-    'aeon:mode="strict"\nview:node=<section:node(<span:node("updated")>)>',
+    'aeon:mode="strict"\n<section:node(<span:node("updated")>)>',
   );
+});
+
+test('titonic exports binding and node attributes on the intrinsic declaration', () => {
+  const doc = createTitonicFromAeon('aeon:mode="strict"');
+  doc.section = titonicElement('section', ['hello'], {datatype: 'node'});
+  setTitonicAttribute(doc, ['section'], 'label', 'keep me', {datatype: 'string'});
+  setTitonicNodeAttribute(doc.section as TitonicElement, 'origin', 'AEON', {datatype: 'string'});
+
+  const text = exportTitonicAeon(doc, {trailingNewline: false});
+  assert.equal(text, 'aeon:mode="strict"\n<section@{label:string="keep me",origin:string="AEON"}:node("hello")>');
+  assert.equal((createTitonicFromAeon(text).section as TitonicElement).tag, 'section');
 });
 
 test('titonic supports pointer alias reads and writes for node values', () => {

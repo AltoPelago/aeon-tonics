@@ -4,6 +4,49 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { prettify, prettifyAeon } from './index.js';
 
+test('prettify deduplicates detached attributes with equivalent number values', () => {
+  const [binding] = compile('<n@{amount:number=1_000}>').events;
+  const [projection] = compile('<n@{amount:number=1000}>').events;
+  assert.ok(binding && projection?.annotations);
+  const replay = compile(prettify([{...binding, annotations: projection.annotations}]).text);
+  assert.deepEqual(replay.errors, []);
+  assert.deepEqual(projectPortableEvents(replay.events), projectPortableEvents([binding]));
+});
+
+test('prettify renders native binding attributes on the intrinsic node', () => {
+  const [event] = compile('<section@{own="own"}>').events;
+  const [label] = compile('label="label"').events;
+  assert.ok(event && label);
+  const annotations = new Map(event.annotations);
+  annotations.set('label', {value: label.value});
+  const output = prettify([{...event, annotations}]).text;
+  const replay = compile(output);
+  assert.deepEqual(replay.errors, []);
+  assert.deepEqual([...replay.events[0]!.annotations!.keys()], ['label', 'own']);
+
+  annotations.set('own', {value: label.value});
+  assert.throws(() => prettify([{...event, annotations}]), /Conflicting attribute "own"/);
+});
+
+test('prettify rejects a native node whose named key differs from its tag', () => {
+  const [event] = compile('<section>').events;
+  assert.ok(event);
+  const mismatched = {
+    ...event,
+    path: { segments: [{type: 'root'}, {type: 'member', key: 'view'}] } as const,
+  };
+  assert.throws(() => prettify([mismatched]), /Node tag "section" must match its key "view"/);
+});
+
+test("prettify keeps a node child's trimtick kind and payload", () => {
+  const source = 'aeon:mode="strict"\n<tag(:trimtick=>`\n    a\\`b\n  c\\\\d\n `)>';
+  const before = compile(source);
+  assert.deepEqual(before.errors, []);
+  const after = compile(prettifyAeon(source).text);
+  assert.deepEqual(after.errors, []);
+  assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
+});
+
 test('prettify preserves symbolic spelling, identities and reference targets through nested formatting', () => {
   const source = String.raw`stage\STATE\@{kind:symbol=|metadata|}:symbol=|ready\|now|
 items=[|one|,{value\VALUE\=|two|}]
@@ -34,14 +77,28 @@ test('prettify keeps quoted aeon-prefixed body keys distinct from header referen
   assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
 });
 
-test('prettify preserves structural identities at every headed occurrence', () => {
-  const source = 'value\\BIND\\@{source\\META\\:string="user"}=<tag\\HEAD\\(\\CHILD\\:string="text")>';
+test('prettify preserves intrinsic nodes, child order and identities', () => {
+  const source = String.raw`<tag\ROOT\@{source\META\:string="user",<badge\BADGE\>}(\CHILD\:string="text",<part>,<part>)>
+object={<section>}
+attached@{<mark>}=true
+copy=~tag[0]`;
   const result = prettifyAeon(source);
-
-  assert.equal(
-    result.text,
-    'value\\BIND\\@{source\\META\\:string = "user"} = <tag\\HEAD\\(\\CHILD\\:string = "text")>',
-  );
+  assert.equal(result.text, String.raw`<tag\ROOT\@{source\META\:string = "user", <badge\BADGE\>}(
+  \CHILD\:string = "text",
+  <part>,
+  <part>
+)>
+object = {
+  <section>
+}
+attached@{<mark>} = true
+copy = ~tag[0]`);
+  const before = compile(source);
+  const after = compile(result.text);
+  assert.deepEqual(before.errors, []);
+  assert.deepEqual(after.errors, []);
+  assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
+  assert.equal(prettifyAeon(result.text).text, result.text);
 });
 
 test('prettify expands minimized aeon without reordering top-level bindings', () => {
@@ -52,7 +109,7 @@ test('prettify expands minimized aeon without reordering top-level bindings', ()
     result.text,
     [
       'z:number = 1',
-      'aeon:mode = "strict"',
+      '"aeon":mode = "strict"',
       'app:object = {',
       '  name:string = "AEON"',
       '  config:object = {',
@@ -71,10 +128,9 @@ test('prettify expands minimized aeon without reordering top-level bindings', ()
 
   const roundTrip = compile(result.text);
   assert.equal(roundTrip.errors.length, 0);
-  assert.deepEqual(
-    roundTrip.events.map((event) => formatPath(event.path)),
-    compile(source).events.map((event) => formatPath(event.path)),
-  );
+  const bindings = (events: typeof roundTrip.events) => events.map((event) =>
+    [formatPath(event.path), event.sourcePlane, event.datatype]);
+  assert.deepEqual(bindings(roundTrip.events), bindings(compile(source).events));
 });
 
 test('prettify renders lowered aeon shortcut headers without datatypes', () => {

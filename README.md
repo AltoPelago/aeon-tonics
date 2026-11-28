@@ -204,6 +204,14 @@ Core examples:
 - `@aeon-tonics/titonic`
   Imports from AEON or AES, exposes a live document model, and exports AES again.
 
+The export formatters write intrinsic node declarations directly in named and
+indexed scopes. A named node supplied through the native event API must use its
+tag as the key. Export places compatible binding metadata on the node and
+reports conflicting metadata. Compactor retains the authored layout when
+compacting a document with nodes would move a selected semantic comment. Use
+`comments: 'none'` to compact without comments. When using the event-and-source
+API, supply matching events if comment preservation is required.
+
 `@aeon/canonical` is closely related but sits slightly sideways to this grouping.
 It is best understood as the deterministic rendering and emission layer rather than the central
 AES-in materialization boundary.
