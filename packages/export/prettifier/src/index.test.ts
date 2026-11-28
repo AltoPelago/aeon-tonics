@@ -4,6 +4,15 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { prettify, prettifyAeon } from './index.js';
 
+test("prettify keeps a node child's trimtick kind and payload", () => {
+  const source = 'aeon:mode="strict"\n<tag(:trimtick=>`\n    a\\`b\n  c\\\\d\n `)>';
+  const before = compile(source);
+  assert.deepEqual(before.errors, []);
+  const after = compile(prettifyAeon(source).text);
+  assert.deepEqual(after.errors, []);
+  assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
+});
+
 test('prettify preserves symbolic spelling, identities and reference targets through nested formatting', () => {
   const source = String.raw`stage\STATE\@{kind:symbol=|metadata|}:symbol=|ready\|now|
 items=[|one|,{value\VALUE\=|two|}]

@@ -4,6 +4,15 @@ import { compile } from '../../../../../aeon/implementations/typescript/packages
 import { formatPath, projectPortableEvents } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
 import { minimize } from './index.js';
 
+test("minimize keeps a node child's trimtick kind and payload", () => {
+  const source = 'aeon:mode="strict"\n<tag(:trimtick=>`\n    a\\`b\n  c\\\\d\n `)>';
+  const before = compile(source);
+  assert.deepEqual(before.errors, []);
+  const after = compile(minimize(before.events).text);
+  assert.deepEqual(after.errors, []);
+  assert.deepEqual(projectPortableEvents(after.events), projectPortableEvents(before.events));
+});
+
 test('minimize preserves structural identities in named and anonymous heads', () => {
   const source = 'age\\A1\\:int32 = 42\nitems = [\\B2\\:string = "green"]';
   const result = compile(source);

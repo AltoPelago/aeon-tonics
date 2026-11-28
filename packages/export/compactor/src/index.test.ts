@@ -106,3 +106,33 @@ test('compact preserves intrinsic node comment layout and respects comment selec
   const stripped = compactAeon(source, { comments:'none' });
   assert.equal(stripped.text, '<root@{<badge>}("first",<tail>)>\nnext=1');
 });
+
+test('compact preserves annotated nodes inside the header without a body node', () => {
+  const source = 'aeon:header={x={<leaf /@ tag @/ >}}\nnext = 1';
+  const before = compile(source);
+  assert.deepEqual(before.errors, []);
+  const layout = (annotations: typeof before.annotations) => annotations?.map(({raw, target, placement}) => ({raw, target, placement}));
+
+  for (const comments of ['semantic', 'all'] as const) {
+    const result = compactAeon(source, {comments});
+    const after = compile(result.text);
+    assert.deepEqual(after.errors, []);
+    assert.deepEqual(layout(after.annotations), layout(before.annotations));
+  }
+  assert.equal(compactAeon(source, {comments:'none'}).text, 'aeon:x={<leaf>}\nnext=1');
+});
+
+test('compact preserves the raw CR in a selected trailing line comment', () => {
+  for (const ending of ['\r', '\r\n', '\n']) {
+    const source = '<n /@ inside @/> //? after' + ending;
+    const before = compile(source);
+    assert.deepEqual(before.errors, []);
+    for (const trailingNewline of [false, true]) {
+      const result = compact(before.events, source, {trailingNewline});
+      const after = compile(result.text);
+      assert.deepEqual(after.errors, []);
+      assert.deepEqual(after.annotations?.map(({raw}) => raw), before.annotations?.map(({raw}) => raw));
+      assert.equal(result.text.endsWith('\n'), trailingNewline);
+    }
+  }
+});

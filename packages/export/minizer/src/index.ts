@@ -56,7 +56,7 @@ function renderValue(value: Value): string {
     case 'TypedValue':
       return `${renderStructuralIdentity(value.structuralId)}${renderAttributes(value.attributes)}${formatDatatype(value.datatype)}=${renderValue(value.value)}`;
     case 'StringLiteral':
-      return value.trimticks ? value.raw : formatString(value.value);
+      return value.trimticks ? '>' + formatString(value.trimticks.rawValue, '`') : formatString(value.value);
     case 'NumberLiteral':
     case 'InfinityLiteral':
     case 'NaNLiteral':
@@ -178,13 +178,14 @@ function formatBindingKey(key: string, datatype: string): string {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && (key !== 'aeon' || datatype === '') ? key : formatString(key);
 }
 
-function formatString(value: string): string {
+function formatString(value: string, delimiter: '"' | '`' = '"'): string {
   let out = '';
   for (let i = 0; i < value.length; i++) {
     const ch = value[i]!;
     switch (ch) {
       case '"':
-        out += '\\"';
+      case '`':
+        out += ch === delimiter ? '\\' + ch : ch;
         break;
       case '\\':
         out += '\\\\';
@@ -205,7 +206,7 @@ function formatString(value: string): string {
       }
     }
   }
-  return `"${out}"`;
+  return delimiter + out + delimiter;
 }
 
 function formatReferencePath(path: readonly ReferencePathSegment[]): string {

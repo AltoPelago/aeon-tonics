@@ -1,6 +1,7 @@
-import { formatPath, type AssignmentEvent } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
-import { compile, projectPortableEvents, type AnnotationRecord } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
+import { formatPath, type AssignmentEvent, type AttributeEntry } from '../../../../../aeon/implementations/typescript/packages/aes/dist/index.js';
+import { compile, type AnnotationRecord } from '../../../../../aeon/implementations/typescript/packages/core/dist/index.js';
 import { tokenize, TokenType, type Token } from '../../../../../aeon/implementations/typescript/packages/lexer/dist/index.js';
+import type { Attribute, Value } from '../../../../../aeon/implementations/typescript/packages/parser/dist/index.js';
 import { minimize } from '../../minizer/dist/index.js';
 
 export type CompactCommentMode = 'semantic' | 'all' | 'none';
@@ -62,7 +63,7 @@ function compactSource(
   options: CompactOptions,
 ): CompactResult {
   const compacted = compactWithAnnotations(events, source, annotations, options);
-  if (options.comments === 'none' || annotations.length === 0 || !projectPortableEvents(sourceEvents).some(event => event.kind === 'NodeLiteral')) {
+  if (options.comments === 'none' || annotations.length === 0 || !sourceEvents.some(hasIntrinsicNode)) {
     return compacted;
   }
 
@@ -77,8 +78,43 @@ function compactSource(
   // Layout contributes to annotation attachment. Keep authored token offsets when
   // the placement algorithm cannot reconstruct the layout of an intrinsic node.
   const preserved = options.comments === 'all' ? source : maskUnselectedComments(source);
-  const text = preserved.replace(/[\r\n]+$/u, '');
+  // The lexer includes CR in a line comment's raw payload. Strip only LF here.
+  const text = preserved.replace(/\n+$/u, '');
   return { text: options.trailingNewline && text.length > 0 ? `${text}\n` : text };
+}
+
+function hasIntrinsicNode(event: AssignmentEvent): boolean {
+  return isTopLevelBinding(event) && (valueHasIntrinsicNode(event.value) || annotationsHaveIntrinsicNode(event.annotations));
+}
+
+function valueHasIntrinsicNode(value: Value): boolean {
+  if (value.type === 'NodeLiteral') return true;
+  if ('attributes' in value && value.attributes.some(attributeHasIntrinsicNode)) return true;
+  switch (value.type) {
+    case 'TypedValue':
+      return valueHasIntrinsicNode(value.value);
+    case 'ObjectNode':
+      return value.bindings.some(binding => valueHasIntrinsicNode(binding.value) || binding.attributes.some(attributeHasIntrinsicNode));
+    case 'ListNode':
+    case 'TupleLiteral':
+      return value.elements.some(valueHasIntrinsicNode);
+    default:
+      return false;
+  }
+}
+
+function attributeHasIntrinsicNode(attribute: Attribute): boolean {
+  for (const entry of attribute.entries.values()) {
+    if (valueHasIntrinsicNode(entry.value) || entry.attributes.some(attributeHasIntrinsicNode)) return true;
+  }
+  return false;
+}
+
+function annotationsHaveIntrinsicNode(annotations: ReadonlyMap<string, AttributeEntry> | undefined): boolean {
+  for (const entry of annotations?.values() ?? []) {
+    if (valueHasIntrinsicNode(entry.value) || annotationsHaveIntrinsicNode(entry.annotations)) return true;
+  }
+  return false;
 }
 
 function annotationLayout(annotations: readonly AnnotationRecord[]): string {
