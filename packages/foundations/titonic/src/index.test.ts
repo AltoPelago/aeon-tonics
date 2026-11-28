@@ -1049,3 +1049,26 @@ test('titonic pointer writes and native output use direct node child paths', () 
   const sourceReplay = compile(exportTitonicAeon(doc));
   assert.deepEqual(sourceReplay.errors, []);
 });
+
+test('a detached intrinsic clone keeps its own identity and leaves source identities unique', () => {
+  const doc = createTitonicFromAeon(String.raw`aeon:mode="strict"
+<panel\ORIGINAL\@{label\ATTR\:string="label"}:node(\CHILD\:string="hello",<row\ROW\>)>
+copy\COPY\:node=~panel`);
+  (doc.copy as TitonicElement).children[0] = 'new';
+  const output = exportTitonicAeon(doc);
+  const result = compile(output);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.events.find((event) => event.key === 'panel')?.structuralId, 'ORIGINAL');
+  assert.equal(result.events.find((event) => event.key === 'copy')?.structuralId, 'COPY');
+  assert.equal(result.events.find((event) => formatPath(event.path) === '$.copy[1]')?.structuralId, undefined);
+});
+
+test('an unlabelled nested mode member stays in the body', () => {
+  const {events, errors} = compile('box={"aeon:mode"="strict",<row>}');
+  assert.deepEqual(errors, []);
+  const unlabelled = events.map(({sourcePlane: _plane, ...event}) => event);
+  assert.throws(() => createTitonicFromAes(unlabelled), /requires strict-mode AES/);
+  const document = createTitonicFromAes(unlabelled, {requireStrictMode: false});
+  assert.deepEqual(exportTitonicAes(document).map((event) => formatPath(event.path)),
+    ['$.box', '$.box.["aeon:mode"]', '$.box.row']);
+});

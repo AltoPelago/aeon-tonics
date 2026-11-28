@@ -49,7 +49,7 @@ Titonic currently has two different usage styles:
 
 ```ts
 doc.config.enabled = true
-doc.view.children.push(titonicElement('br', [], { datatype: 'node' }))
+doc.panel.children.push(titonicElement('br', [], { datatype: 'node' }))
 ```
 
 2. explicit path and metadata helpers
@@ -131,7 +131,7 @@ story on their own.
 Node-specific metadata could also benefit from a wrapper:
 
 ```ts
-const view = titonicNode(doc.view)
+const view = titonicNode(doc.panel)
 view.attributes.get('id')
 view.attributes.set('id', 'hero')
 ```

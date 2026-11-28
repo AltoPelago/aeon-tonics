@@ -453,7 +453,7 @@ export function createTitonicFromAes(
   const headerEvents = aes.filter(isHeaderEvent);
   const strictMode = headerEvents.some(
     (event) =>
-      event.key === 'aeon:mode' &&
+      isTopLevelEvent(event) && event.key === 'aeon:mode' &&
       event.value.type === 'StringLiteral' &&
       event.value.value === 'strict',
   );
@@ -1130,7 +1130,7 @@ function resolveTitonicSelector(
           children: (parent) => iterateTitonicChildren(controller, parent),
           identity: (child) => {
             identityBudget.inspected += 1;
-            return child.node.kind === 'element' ? child.node.headStructuralId : child.node.structuralId;
+            return child.node.kind === 'element' ? child.node.headStructuralId ?? child.node.structuralId : child.node.structuralId;
           },
         }, { maxIdentityInspections: identityBudget.limit - identityBudget.inspected });
         if (!result.ok) {
@@ -1279,12 +1279,13 @@ function resolveNamePatternSelector(
   pattern: string,
 ): readonly TitonicResolveCandidate[] {
   const matcher = globPatternToRegExp(pattern);
-  return candidates.flatMap((candidate) =>
-    directTitonicChildren(controller, candidate).filter((child) => {
+  return candidates.flatMap((candidate) => {
+    if (resolveReadableTitonicNode(controller, candidate.node).kind !== 'object') return [];
+    return directTitonicChildren(controller, candidate).filter((child) => {
       const key = child.portablePath[child.portablePath.length - 1];
       return typeof key === 'string' && matcher.test(key);
-    }),
-  );
+    });
+  });
 }
 
 function directTitonicChildren(
@@ -2253,8 +2254,8 @@ function emitNodeEvents(
   path: readonly ({ readonly type: 'root' } | { readonly type: 'member'; readonly key: string } | { readonly type: 'index'; readonly index: number })[],
   key: string,
   out: AssignmentEvent[],
+  value = nodeToAstValue(node),
 ): void {
-  const value = nodeToAstValue(node);
   const intrinsic = value.type === 'NodeLiteral' ? value : undefined;
   const structuralId = intrinsic?.structuralId ?? node.structuralId;
   const datatype = intrinsic?.datatype ? formatDatatypeAnnotation(intrinsic.datatype) : node.declaredDatatype;
@@ -2272,26 +2273,20 @@ function emitNodeEvents(
     ...(annotations?.size ? { annotations } : {}),
   });
 
-  if (node.kind === 'object') {
-    for (const [childKey, child] of node.properties) {
-      emitNodeEvents(child, [...path, { type: 'member', key: childKey }], childKey, out);
+  const payload = node.kind === 'clone-view' ? node.realized : node;
+  if (payload?.kind === 'object' && value.type === 'ObjectNode') {
+    for (const binding of value.bindings) {
+      emitNodeEvents(payload.properties.get(binding.key)!, [...path, { type: 'member', key: binding.key }],
+        binding.key, out, binding.value);
     }
-  } else if (node.kind === 'list' || node.kind === 'tuple' || node.kind === 'element') {
-    indexedTitonicItems(node)!.forEach((child, index) => {
-      emitNodeEvents(child, [...path, { type: 'index', index }], String(index), out);
+  } else if (payload && (value.type === 'NodeLiteral' || value.type === 'ListNode' || value.type === 'TupleLiteral')) {
+    const items = indexedTitonicItems(payload);
+    const children = value.type === 'NodeLiteral' ? value.children : value.elements;
+    if (!items) return;
+    children.forEach((child, index) => {
+      const childValue = child.type === 'TypedValue' ? child.value : child;
+      emitNodeEvents(items[index]!, [...path, { type: 'index', index }], String(index), out, childValue);
     });
-  } else if (node.kind === 'pointer-alias' || (node.kind === 'clone-view' && !node.realized)) {
-    return;
-  } else if (node.kind === 'clone-view' && node.realized) {
-    if (node.realized.kind === 'object') {
-      for (const [childKey, child] of node.realized.properties) {
-        emitNodeEvents(child, [...path, { type: 'member', key: childKey }], childKey, out);
-      }
-    } else {
-      indexedTitonicItems(node.realized)?.forEach((child, index) => {
-        emitNodeEvents(child, [...path, { type: 'index', index }], String(index), out);
-      });
-    }
   }
 }
 
@@ -2748,7 +2743,8 @@ function isTopLevelEvent(event: AssignmentEvent): boolean {
 }
 
 function isHeaderEvent(event: AssignmentEvent): boolean {
-  return event.sourcePlane === undefined ? event.key.startsWith('aeon:') : event.sourcePlane === 'header';
+  if (event.sourcePlane !== undefined) return event.sourcePlane === 'header';
+  return isTopLevelEvent(event) && event.value.type !== 'NodeLiteral' && event.key.startsWith('aeon:');
 }
 
 function zeroSpan() {
@@ -2954,11 +2950,51 @@ function realizeCloneNode(node: CloneViewNode, controller?: TitonicController): 
     inferDatatypeForNewObjectMembers: true,
     inferDatatypeForListItems: false,
   }));
+  clearDetachedNodeIdentities(realized, new WeakMap());
   if (realized.kind === 'element' && node.bindingKey !== undefined) {
     realized.tag = node.bindingKey;
   }
   node.realized = preserveDeclaredDatatype(node, realized);
   return node.realized;
+}
+
+// The copy creates new occurrences. Only the alias's own metadata is reapplied.
+function clearDetachedNodeIdentities(
+  node: TitonicNode,
+  metadata: WeakMap<object, unknown>,
+  insideNode = false,
+): void {
+  const clear = insideNode || node.kind === 'element';
+  if (clear) {
+    delete node.structuralId;
+    if (node.annotations) node.annotations = copyWithoutIdentities(node.annotations, metadata);
+    if (node.attributes) node.attributes = copyWithoutIdentities(node.attributes, metadata);
+  }
+  if (node.kind === 'element') {
+    delete node.headStructuralId;
+    if (node.headAnnotations) node.headAnnotations = copyWithoutIdentities(node.headAnnotations, metadata);
+    if (node.headAttributes) node.headAttributes = copyWithoutIdentities(node.headAttributes, metadata);
+  }
+  const children = node.kind === 'object' ? node.properties.values() : indexedTitonicItems(node);
+  for (const child of children ?? []) clearDetachedNodeIdentities(child, metadata, clear);
+}
+
+function copyWithoutIdentities<T>(value: T, metadata: WeakMap<object, unknown>): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (metadata.has(value)) return metadata.get(value) as T;
+  let result: unknown;
+  if (value instanceof Map) {
+    result = new Map([...value].map(([key, entry]) => [key, copyWithoutIdentities(entry, metadata)]));
+  } else if (Array.isArray(value)) {
+    result = value.map((entry) => copyWithoutIdentities(entry, metadata));
+  } else {
+    result = Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+      key, key === 'structuralId' ? null
+        : key === 'span' || key === 'headSpan' ? entry : copyWithoutIdentities(entry, metadata),
+    ]));
+  }
+  metadata.set(value, result);
+  return result as T;
 }
 
 function createDerivedCloneView(parent: CloneViewNode, segment: ReferencePathSegment): CloneViewNode {

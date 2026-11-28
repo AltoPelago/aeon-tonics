@@ -349,8 +349,8 @@ Current supported path syntax:
 - `$.nested.value`
 - `$.items[0]`
 - `$.["quoted key"]`
-- `$.node[0]` for the node head
-- `$.node[0][0]` for its first child
+- `$.node` for the node and its metadata
+- `$.node[0]` for its first child
 
 Paths use the portable AES event hierarchy. Titonic's `TITONIC_CHILDREN`
 segment remains an internal SDK mutation detail and is not emitted by the CLI.

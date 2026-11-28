@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  type AeonEditBatchOperation,
   applyAeonEditBatch,
   appendAeonEditValue,
   deleteAeonEditAttribute,
@@ -465,4 +466,13 @@ test('gets, sets, and deletes nested node-head attribute annotations', () => {
 test('sets an indexed occurrence from an intrinsic node snippet', () => {
   const result = setAeonEditValue('aeon:mode="strict"\n<panel(<br>)>', '$.panel[0]', '<row("text")>');
   assert.match(result.output?.text ?? '', /<panel\(<row\("text"\)>\)>/);
+});
+
+test('a plan for replacing a whole intrinsic node passes its own preflight', () => {
+  const source = 'aeon:mode="strict"\n<panel("before")>';
+  const result = planAeonEditSet(source, '$.panel', '<panel("after")>');
+  assert.equal(result.ok, true);
+  const {operations} = result.value as { operations: readonly AeonEditBatchOperation[] };
+  assert.equal(preflightAeonEditBatch(source, operations).ok, true);
+  assert.equal(applyAeonEditBatch(source, operations).ok, true);
 });

@@ -95,7 +95,7 @@ import {
 
 doc.color = titonicHex('#FF00AA')
 doc.created = titonicDate('2026-04-24')
-doc.view = titonicElement('panel', ['hello'], { datatype: 'node' })
+doc.panel = titonicElement('panel', ['hello'], { datatype: 'node' })
 ```
 
 Use constructor helpers when:
@@ -125,8 +125,8 @@ import {
 } from './src/index.js'
 
 setTitonicAttribute(doc, ['config', 'retries'], 'unit', 'ms')
-setTitonicNodeAttribute(doc.view, 'id', 'hero')
-getTitonicNodeAttribute(doc.view, 'id')
+setTitonicNodeAttribute(doc.panel, 'id', 'hero')
+getTitonicNodeAttribute(doc.panel, 'id')
 ```
 
 Reach for these when:

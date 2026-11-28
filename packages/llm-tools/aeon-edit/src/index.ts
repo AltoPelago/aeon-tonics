@@ -979,7 +979,7 @@ function pathExists(document: TitonicObject, path: string): boolean {
 
 function readPathValue(document: TitonicObject, path: string): { readonly exists: true; readonly value: TitonicValue } | { readonly exists: false } {
   const target = tryResolveAeonEditAddress(document, path);
-  if (target === undefined || target.kind !== 'value') return { exists: false };
+  if (target === undefined) return { exists: false };
   return readParsedPathValue(document, target.titonicPath);
 }
 
